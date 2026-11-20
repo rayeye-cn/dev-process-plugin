@@ -93,7 +93,7 @@ export async function verifyReview({ forge, policy, reviewer, number, eventHead,
   const text = tr(policy.language, d.notice);
   const body = `${claudeNoticeMarker(change.headSha)}\n${text}`;
   summary(env, text);
-  if (hasNotice(change.comments, forge.ciIdentity, body)) {
+  if (hasNotice(change.comments, forge.ciIdentity, body, change.baseChangedAt)) {
     log(`[ai-review] #${number}: the same notice is already on ${change.headSha}`);
     return { notice: false, reason: "posted" };
   }

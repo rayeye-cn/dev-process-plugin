@@ -67,7 +67,7 @@ import {
 } from "../core/queue.mjs";
 import { createForge } from "../forge/index.mjs";
 import { reviewerFor } from "../reviewer/index.mjs";
-import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
+import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 import { judgeChange } from "./risk-gate.mjs";
 
 const item = (code, params = {}) => ({ code, params });
@@ -382,7 +382,7 @@ async function main() {
   }
   let forge;
   try {
-    forge = createForge(policy, { repo: typeof args.repo === "string" ? args.repo : undefined });
+    forge = createForge(policy, { repo: repoName(args, repoRoot()) });
   } catch (e) {
     console.error(`usage: merge-queue.mjs [--repo owner/name] [--dry-run] (or set GITHUB_REPOSITORY): ${e.message}`);
     process.exitCode = 2;

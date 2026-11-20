@@ -22,7 +22,7 @@ import { reviewInstructions } from "../core/findings.mjs";
 import { t } from "../core/messages/index.mjs";
 import { loadPolicy } from "../core/policy.mjs";
 import { createForge } from "../forge/index.mjs";
-import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
+import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const USAGE = "usage: review-eval.mjs list | head <id> | prompt <id> [--cli copilot|claude] | score --out-dir <dir> [--report-issue [--repo owner/name]]";
 const LABEL_COLOR = "1d76db";
@@ -120,7 +120,7 @@ async function main() {
     process.stdout.write(buildEvalPrompt(reviewInstructions(root, policy), c, text, truncated, opts));
     return;
   }
-  const forge = args["report-issue"] ? createForge(policy, { repo: typeof args.repo === "string" ? args.repo : undefined }) : null;
+  const forge = args["report-issue"] ? createForge(policy, { repo: repoName(args, repoRoot()) }) : null;
   const outDir = typeof args["out-dir"] === "string" ? args["out-dir"] : "out";
   process.exitCode = await score({ policy, cases, outDir, forge });
 }

@@ -6,7 +6,7 @@
  * after the latest target-branch change. Judging it any other way would let a retarget run skip (or accept the old
  * summary) while the gate keeps waiting.
  */
-import { aiReviewState } from "./gate.mjs";
+import { afterBaseChange, aiReviewState } from "./gate.mjs";
 
 /** Machine-read outputs of the job steps (language-neutral). */
 export const SKIP = Object.freeze({ fork: "fork", draft: "draft", superseded: "superseded", reviewed: "reviewed" });
@@ -45,7 +45,10 @@ export function verifyDecision({ reviewer, change, eventHead, outcome, keySet })
   return { notice: { code, params: { sha: change.headSha, outcome } }, reason: "missing" };
 }
 
-/** A notice with the same text already on this head (a re-run): don't post it twice. */
-export function hasNotice(comments, ciIdentity, body) {
-  return (comments ?? []).some((c) => c.login === ciIdentity && String(c.body ?? "").trim() === body.trim());
+/**
+ * A notice with the same text already on this head (a re-run): don't post it twice. Like the gate, only one posted after
+ * the latest target-branch change counts: the gate no longer quotes an older one, so a retarget run posts it again.
+ */
+export function hasNotice(comments, ciIdentity, body, baseChangedAt = null) {
+  return (comments ?? []).some((c) => c.login === ciIdentity && String(c.body ?? "").trim() === body.trim() && afterBaseChange(c.createdAt, baseChangedAt));
 }

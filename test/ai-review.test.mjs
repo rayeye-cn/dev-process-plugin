@@ -64,6 +64,12 @@ describe("after the review step", () => {
     assert.equal(hasNotice([{ login: "github-actions[bot]", body }], "github-actions[bot]", body), true);
     assert.equal(hasNotice([{ login: "mallory", body }], "github-actions[bot]", body), false);
   });
+  it("a notice from before a retarget does not count (the gate no longer quotes it), so the retarget run posts it again", () => {
+    const body = `${claudeNoticeMarker(HEAD)}\nx`;
+    const old = { login: "github-actions[bot]", body, createdAt: "2026-11-19T11:00:00Z" };
+    assert.equal(hasNotice([old], "github-actions[bot]", body, "2026-11-19T12:00:00Z"), false);
+    assert.equal(hasNotice([old, { ...old, createdAt: "2026-11-19T12:30:00Z" }], "github-actions[bot]", body, "2026-11-19T12:00:00Z"), true);
+  });
 });
 
 /* ───────────────────────────── the CLI against an in-memory forge ───────────────────────────── */
@@ -108,6 +114,11 @@ describe("ai-review CLI", () => {
     const logs = [];
     assert.deepEqual(await verifyReview({ forge: ro, policy, reviewer: claude, number: "7", eventHead: HEAD, outcome: "failure", keySet: false, env: {}, log: (l) => logs.push(l) }), { notice: false, reason: "unwritable" });
     assert.match(logs.join("\n"), /::warning::#7: could not post the notice/);
+
+    const retargeted = fakeForge(change({ comments: [{ login: "github-actions[bot]", body, createdAt: "2026-11-19T11:00:00Z" }] }));
+    const r = await verifyReview({ forge: retargeted, policy: { ...policy, language: "en" }, reviewer: claude, number: "7", eventHead: HEAD, outcome: "failure", keySet: true, env: { BASE_CHANGED_AT: "2026-11-19T12:00:00Z" }, ...quiet });
+    assert.equal(r.notice, true, "the old notice predates the retarget");
+    assert.equal(retargeted.writes.length, 1);
 
     const done = fakeForge(change({ comments: [summary()] }));
     assert.equal((await verifyReview({ forge: done, policy, reviewer: claude, number: "7", eventHead: HEAD, outcome: "success", keySet: true, env: {}, ...quiet })).notice, false);

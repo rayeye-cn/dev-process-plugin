@@ -55,7 +55,8 @@ describe("local", () => {
 });
 
 describe("remote", () => {
-  const forge = (rulesets, ruleset, secret = 200) => ({
+  const claudeApp = { installations: [{ app_slug: "claude", repository_selection: "selected" }] };
+  const forge = (rulesets, ruleset, secret = 200, apps = claudeApp) => ({
     owner: "o",
     name: "r",
     repo: "o/r",
@@ -67,6 +68,10 @@ describe("remote", () => {
         if (u.includes("/actions/secrets/")) {
           if (secret === 200) return {};
           throw Object.assign(new Error("x"), { status: secret });
+        }
+        if (u.startsWith("/orgs/o/installations")) {
+          if (typeof apps === "number") throw Object.assign(new Error("x"), { status: apps });
+          return apps;
         }
         throw new Error(`unexpected ${u}`);
       },
@@ -85,5 +90,16 @@ describe("remote", () => {
     const r = await remoteFindings(forge([{ id: 1, name: RULESET_NAME }], { ...active, enforcement: "disabled" }, 403), policy);
     assert.deepEqual(codes(r), ["doctor.rulesetDisabled", "doctor.secretUnknown"]);
     for (const x of r) for (const lang of ["zh", "en"]) assert.equal(typeof tr(lang, x), "string");
+  });
+
+  it("Claude reviewer: the App missing from the organization is an error; not an org admin ⇒ check by hand; a personal account ⇒ nothing", async () => {
+    const ok = [{ id: 1, name: RULESET_NAME }];
+    const other = { installations: [{ app_slug: "notion-workspace" }] };
+    const missing = await remoteFindings(forge(ok, active, 200, other), policy);
+    assert.deepEqual(codes(missing), ["doctor.claudeAppMissing"]);
+    assert.match(tr("en", missing[0]), /github\.com\/apps\/claude/);
+    assert.deepEqual(codes(await remoteFindings(forge(ok, active, 200, 403), policy)), ["doctor.claudeAppUnknown"]);
+    assert.deepEqual(await remoteFindings(forge(ok, active, 200, 404), policy), []);
+    assert.deepEqual(await remoteFindings(forge(ok, active, 200, other), { ...policy, reviewer: "copilot" }), [], "only the Claude reviewer needs it");
   });
 });

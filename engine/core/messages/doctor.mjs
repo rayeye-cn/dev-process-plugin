@@ -14,6 +14,8 @@ const zh = {
   "doctor.secretMissing": (p) => `缺仓库密钥 ${p.name}（${p.why}）`,
   "doctor.secretUnknown": (p) => `查不了仓库密钥 ${p.name}（需要仓库管理员权限），请人工确认`,
   "doctor.why.claude": "Claude 评审、分类器、夜间巡检与用例集都用它",
+  "doctor.claudeAppMissing": (p) => `组织 ${p.owner} 没装 Claude GitHub App：评审作业拿不到 App 的令牌，每次都会失败。到 https://github.com/apps/claude 安装（只选 ${p.repo} 也行）`,
+  "doctor.claudeAppUnknown": (p) => `查不了组织 ${p.owner} 装了哪些 GitHub App（需要组织管理员），请人工确认 Claude GitHub App 已装到 ${p.repo}`,
   "doctor.remoteUnreachable": (p) => `连不上 ${p.repo}：${p.message}`,
 };
 
@@ -32,6 +34,8 @@ const en = {
   "doctor.secretMissing": (p) => `Missing repository secret ${p.name} (${p.why})`,
   "doctor.secretUnknown": (p) => `Cannot check repository secret ${p.name} (needs repository admin); please confirm by hand`,
   "doctor.why.claude": "used by the Claude review, the classifier, the nightly sweep and the review eval",
+  "doctor.claudeAppMissing": (p) => `The Claude GitHub App is not installed on ${p.owner}: the review job cannot get the App's token and fails every time. Install it from https://github.com/apps/claude (selecting only ${p.repo} is enough)`,
+  "doctor.claudeAppUnknown": (p) => `Cannot list the GitHub Apps installed on ${p.owner} (needs an organization admin); check by hand that the Claude GitHub App is installed on ${p.repo}`,
   "doctor.remoteUnreachable": (p) => `Cannot reach ${p.repo}: ${p.message}`,
 };
 

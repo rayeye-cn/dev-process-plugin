@@ -18,4 +18,5 @@ argument-hint: "[repository path, default: current directory]"
    - no ruleset yet: expected until a test pull request shows every required check; then `apply-protection` (the user's call, admin rights);
    - ruleset drift: re-run `apply-protection` after the user agrees;
    - a missing secret: the repository admin adds it in Settings → Secrets and variables → Actions.
+   - the Claude GitHub App missing (Claude reviewer): an organization admin installs it from github.com/apps/claude, selecting at least this repository; doctor cannot see which repositories a "selected" installation covers, so if review jobs still fail with a token error, check that list.
 4. If the user reports a red gate on a pull request, read the gate's sticky comment on that PR ("still missing" list) and explain each item. Never post `/signoff` or waiver commands, never approve, never hand-post statuses to turn it green.

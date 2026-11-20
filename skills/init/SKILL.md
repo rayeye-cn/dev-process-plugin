@@ -87,7 +87,7 @@ Walk the user through `docs/dev-process/review-setup.md`:
 1. Reviewer setup (Copilot policies and budget, or the `ANTHROPIC_API_KEY` secret and the Claude GitHub App).
 2. Self-hosted runners, if configured.
 3. A test pull request: every required check (`checks`, `tests`, the release gate when present, `risk-gate`, and `merge-queue` after adding the queue label) shows a result.
-4. Only then, with the user's yes: `node <repo>/.dev-process/engine/cli/apply-protection.mjs --dry-run`, show the output, then without `--dry-run` (needs repository admin). The engine reads the token from `GH_TOKEN`: when the user runs it themselves, tell them to pass their `gh auth token` output as `GH_TOKEN` to `node .dev-process/engine/cli/apply-protection.mjs` (prefix the command with `!` in this session).
+4. Only then, with the user's yes: `node <repo>/.dev-process/engine/cli/apply-protection.mjs --dry-run` (it reads owner/name from the repository's github.com `origin` remote; without one, add `--repo <owner>/<name>`), show the output, then without `--dry-run` (needs repository admin). The engine reads the token from `GH_TOKEN`: when the user runs it themselves, tell them to pass their `gh auth token` output as `GH_TOKEN` to `node .dev-process/engine/cli/apply-protection.mjs` (prefix the command with `!` in this session).
 5. `node <repo>/.dev-process/engine/cli/doctor.mjs --remote` — everything green.
 
 End with a short summary of what is enforced now, what still depends on the admin steps, and that `/dev-process:doctor` re-checks the setup any time.

@@ -18,7 +18,7 @@ import { parseFindings, reviewInstructions, validateFindings } from "../core/fin
 import { loadPolicy } from "../core/policy.mjs";
 import { areaForDate, buildSweepPrompt, findingsInArea, isDuplicate, issueFor, markersIn } from "../core/sweep.mjs";
 import { createForge } from "../forge/index.mjs";
-import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
+import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const USAGE = "usage: nightly-sweep.mjs prompt [--area <glob>] [--date YYYY-MM-DD] [--cli copilot|claude] | parse --area <glob> < out.txt | file-issues [--repo owner/name] --area <glob> findings.json";
 const LABEL_COLOR = "d93f0b";
@@ -110,7 +110,7 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  const forge = createForge(policy, { repo: typeof args.repo === "string" ? args.repo : undefined });
+  const forge = createForge(policy, { repo: repoName(args, repoRoot()) });
   await fileIssues({ forge, policy, area, findings: JSON.parse(readFileSync(file, "utf8")) });
 }
 

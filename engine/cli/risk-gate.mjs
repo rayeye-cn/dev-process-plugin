@@ -19,7 +19,7 @@ import { t } from "../core/messages/index.mjs";
 import { loadPolicy, TIERS } from "../core/policy.mjs";
 import { createForge } from "../forge/index.mjs";
 import { reviewerFor } from "../reviewer/index.mjs";
-import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
+import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const marker = (policy) => `<!-- ${policy.names.gateContext} -->`;
 const rethinkMarker = (policy) => `<!-- ${policy.names.gateContext}:rethink -->`;
@@ -95,7 +95,7 @@ export async function judgeChange({ forge, policy, reviewer, number, dryRun = fa
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = loadPolicy(repoRoot());
-  const forge = createForge(policy, { repo: typeof args.repo === "string" ? args.repo : undefined });
+  const forge = createForge(policy, { repo: repoName(args, repoRoot()) });
   const reviewer = reviewerFor(policy.reviewer, { ciIdentity: forge.ciIdentity, accounts: policy.aiReview.accounts });
   const headSha = typeof args["head-sha"] === "string" ? args["head-sha"] : null;
   const number = typeof args.pr === "string" && args.pr ? args.pr : headSha ? await forge.findOpenPrByHead(headSha) : null;

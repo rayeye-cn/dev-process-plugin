@@ -21,7 +21,10 @@ import { t, tr } from "../core/messages/index.mjs";
 import { loadPolicy } from "../core/policy.mjs";
 import { requiredContexts, RULESET_NAME } from "../core/protection.mjs";
 import { createForge } from "../forge/index.mjs";
-import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
+import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
+
+/** github.com/apps/claude: the App claude-code-action posts as (claude[bot]). */
+const CLAUDE_APP_SLUG = "claude";
 
 const LOCK = ".dev-process/render-lock.json";
 const sha = (s) => createHash("sha256").update(s).digest("hex");
@@ -102,8 +105,26 @@ export async function remoteFindings(forge, policy) {
       if (e.status === 404) out.push(f("error", "doctor.secretMissing", { name: "ANTHROPIC_API_KEY", why: t(policy.language, "doctor.why.claude") }));
       else out.push(f("warn", "doctor.secretUnknown", { name: "ANTHROPIC_API_KEY" }));
     }
+    out.push(...(await claudeAppFindings(forge)));
   }
   return out;
+}
+
+/**
+ * Is the Claude GitHub App installed? Without it claude-code-action cannot get the App's token and every review job
+ * fails. Best effort: an organization's installations can be listed by an organization admin (403 otherwise ⇒ ask to
+ * check by hand); a personal account's cannot with a user token (404 ⇒ say nothing). An installation limited to selected
+ * repositories may still leave this one out; that is not visible here.
+ */
+async function claudeAppFindings(forge) {
+  let list;
+  try {
+    list = await forge.rest.get(`/orgs/${forge.owner}/installations?per_page=100`);
+  } catch (e) {
+    return e.status === 403 ? [f("warn", "doctor.claudeAppUnknown", { owner: forge.owner, repo: forge.repo })] : [];
+  }
+  const found = (list?.installations ?? []).some((i) => i.app_slug === CLAUDE_APP_SLUG);
+  return found ? [] : [f("error", "doctor.claudeAppMissing", { owner: forge.owner, repo: forge.repo })];
 }
 
 async function main() {
@@ -113,7 +134,7 @@ async function main() {
   const lang = policy.language;
   const local = localFindings(root, policy);
   let remote = [];
-  if (args.remote) remote = await remoteFindings(createForge(policy, { repo: typeof args.repo === "string" ? args.repo : undefined }), policy);
+  if (args.remote) remote = await remoteFindings(createForge(policy, { repo: repoName(args, repoRoot()) }), policy);
   const all = [...local, ...remote];
   if (args.json) console.log(JSON.stringify(all, null, 2));
   else {

@@ -1,4 +1,5 @@
-/** Shared CLI plumbing: `--key value` / `--flag` arguments, repository root, "run if main". */
+/** Shared CLI plumbing: `--key value` / `--flag` arguments, repository root and name, "run if main". */
+import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,6 +29,32 @@ export function parseArgs(argv) {
  */
 export function repoRoot(env = process.env, cliUrl = import.meta.url) {
   return env.DEV_PROCESS_ROOT ? resolve(env.DEV_PROCESS_ROOT) : resolve(fileURLToPath(cliUrl), "..", "..", "..", "..");
+}
+
+/** `owner/name` from a github.com remote URL (https, ssh, scp-like), or null. */
+export function githubRepoFromUrl(url) {
+  const m = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/.exec(String(url ?? "").trim());
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+/**
+ * The repository `owner/name`: `--repo`, else GITHUB_REPOSITORY (set in CI), else the github.com `origin` remote of the
+ * checkout, so commands run by hand in the repository need no `--repo`.
+ */
+export function repoName(args, root, env = process.env, originUrl = defaultOrigin) {
+  if (typeof args.repo === "string") return args.repo;
+  if (env.GITHUB_REPOSITORY) return env.GITHUB_REPOSITORY;
+  const found = githubRepoFromUrl(originUrl(root));
+  if (found) return found;
+  throw new Error("which repository? pass --repo <owner>/<name> (no github.com origin remote here, and GITHUB_REPOSITORY is not set)");
+}
+
+function defaultOrigin(root) {
+  try {
+    return execFileSync("git", ["-C", root, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return "";
+  }
 }
 
 /** Run `main` when the module is the entry point; print the error and exit 1 on failure. */

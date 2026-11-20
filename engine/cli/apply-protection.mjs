@@ -6,13 +6,15 @@
  *   GH_TOKEN=$(gh auth token) node .dev-process/engine/cli/apply-protection.mjs --dry-run   # print what would be written
  *   GH_TOKEN=$(gh auth token) node .dev-process/engine/cli/apply-protection.mjs             # write (repository admin)
  *
+ * The repository is `--repo owner/name`, else GITHUB_REPOSITORY, else the checkout's github.com `origin` remote.
+ *
  * ORDER MATTERS: merge the workflows first and see every required check report on a test PR, then run this;
  * otherwise every PR is blocked.
  */
 import { githubRuleset, RULESET_NAME } from "../core/protection.mjs";
 import { loadPolicy } from "../core/policy.mjs";
 import { createForge } from "../forge/index.mjs";
-import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
+import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 /** GitHub: create or update the ruleset named RULESET_NAME. Returns `{ action, id, body }`. */
 export async function applyGithubRuleset(forge, policy, { dryRun = false, log = console.log } = {}) {
@@ -32,7 +34,7 @@ export async function applyGithubRuleset(forge, policy, { dryRun = false, log = 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = loadPolicy(repoRoot());
-  const forge = createForge(policy, { repo: typeof args.repo === "string" ? args.repo : undefined });
+  const forge = createForge(policy, { repo: repoName(args, repoRoot()) });
   const dryRun = Boolean(args["dry-run"]);
   if (forge.id === "github") await applyGithubRuleset(forge, policy, { dryRun });
   else throw new Error(`apply-protection: forge "${forge.id}" is not supported yet`);
