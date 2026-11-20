@@ -17,7 +17,6 @@
  * When the AI CLI did not run it leaves no output file; scoring counts that as "no usable output", never as "missed".
  */
 import { readFileSync } from "node:fs";
-import { posix } from "node:path";
 
 import { assertCli, FINDING_TOKEN, findingFormat, NONE_TOKEN, parseFindings, saysNone } from "./findings.mjs";
 import { t } from "./messages/index.mjs";
@@ -30,54 +29,8 @@ export const INCIDENT_TEMPLATE = "docs/incident-review-template.md";
 /** Where the scoring method is documented in the vendored engine (this file's header). */
 export const METHOD_DOC = ".dev-process/engine/core/eval.mjs";
 
-/*
- * Local copies of the classifier's diff helpers (identical behavior to orderDiff / truncateBytes in the reference
- * classify module). engine/core/classify.mjs is being ported in parallel; switch to its exports once it lands.
- */
-
-/** Truncate to `max` UTF-8 bytes without cutting a multi-byte character. */
-export function truncateBytes(text, max) {
-  const buf = Buffer.from(text, "utf8");
-  if (buf.length <= max) return { text, truncated: false };
-  let end = max;
-  while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
-  return { text: buf.subarray(0, end).toString("utf8"), truncated: true };
-}
-
-/** git quotes non-ASCII paths and writes their bytes as octal escapes (`"a/design/62-\344\270\213…"`): back to UTF-8. */
-function unquoteGitPath(s) {
-  const bytes = [];
-  const named = { n: "\n", t: "\t", '"': '"', "\\": "\\" };
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === "\\" && /^[0-7]{3}$/.test(s.slice(i + 1, i + 4))) {
-      bytes.push(parseInt(s.slice(i + 1, i + 4), 8));
-      i += 3;
-    } else if (s[i] === "\\" && i + 1 < s.length) {
-      bytes.push(...Buffer.from(named[s[i + 1]] ?? s[i + 1], "utf8"));
-      i += 1;
-    } else {
-      bytes.push(...Buffer.from(s[i], "utf8"));
-    }
-  }
-  return Buffer.from(bytes).toString("utf8");
-}
-
-/** Old and new path of a `diff --git` header (quoted ones too). */
-function diffHeaderPaths(chunk) {
-  const m = /^diff --git (?:"a\/((?:[^"\\]|\\.)*)"|a\/(\S+)) (?:"b\/((?:[^"\\]|\\.)*)"|b\/(\S+))/.exec(chunk);
-  if (!m) return [];
-  return [m[1] !== undefined ? unquoteGitPath(m[1]) : m[2], m[3] !== undefined ? unquoteGitPath(m[3]) : m[4]];
-}
-
-/** Split the diff by file and move docs-only files last: truncation drops docs before code. */
-export function orderDiff(diff, lowOnlyPaths) {
-  const chunks = String(diff).split(/(?=^diff --git )/m).filter(Boolean);
-  const isDoc = (chunk) => {
-    const paths = diffHeaderPaths(chunk);
-    return paths.length > 0 && paths.every((p) => lowOnlyPaths.some((g) => posix.matchesGlob(p, g)));
-  };
-  return [...chunks.filter((c) => !isDoc(c)), ...chunks.filter(isDoc)].join("");
-}
+/** The diff helpers are shared with the classifier (same truncation and docs-last ordering). */
+export { orderDiff, truncateBytes } from "./classify.mjs";
 
 /** The cases file: a JSON array (an empty one is fine — a new project has no incidents yet). */
 export function loadCases(file) {
