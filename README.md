@@ -42,7 +42,7 @@ Then, in the repository to set up: `/dev-process:init`.
 - [x] M2 English catalog, bilingual templates, deterministic renderer, `init`, `doctor` and `upgrade` skills (GitHub + Copilot + built-in queue)
 - [x] M3 Claude reviewer on GitHub (review workflow, reviewer adapter, notices)
 - [ ] M4 End-to-end validation in a sandbox GitHub repository
-- [x] M5 GitLab, all tiers (forge adapter, bot pipelines on the default branch, Claude review job, queue, setup, doctor; the review eval is not ported yet)
+- [x] M5 GitLab, all tiers (forge adapter, bot pipelines on the default branch, Claude review job, queue, setup, doctor; review eval included)
 - [ ] M6 End-to-end validation on GitLab
 - [ ] M7 v1.0.0
 

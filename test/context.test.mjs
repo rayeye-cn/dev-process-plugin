@@ -80,8 +80,8 @@ describe("answers: GitLab", () => {
   it("renders the GitLab names and schedules into the policy", () => {
     const c = buildContext(validateAnswers(gl({ loops: { sweep: false, eval: true, metrics: true } })));
     assert.deepEqual([c.policy.names.ciWorkflow, c.policy.names.gateWorkflow, c.policy.names.queueWorkflow, c.policy.names.aiReviewWorkflow], ["ci", "risk-gate", "merge-queue", "ai-review"]);
-    assert.deepEqual(c.policy.gitlab, { url: "https://gitlab.example.com", tier: "free", schedules: ["poll", "metrics"] });
-    assert.equal(c.loops.eval, false, "the review eval is not ported to GitLab yet");
+    assert.deepEqual(c.policy.gitlab, { url: "https://gitlab.example.com", tier: "free", schedules: ["poll", "eval", "metrics"] });
+    assert.equal(c.loops.eval, true);
     assert.equal(c.ciFile, ".gitlab-ci.yml");
   });
 });

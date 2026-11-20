@@ -179,6 +179,8 @@ describe("options that are not available yet", () => {
     }
     const bot = readFileSync(join(d, ".gitlab/dev-process.gitlab-ci.yml"), "utf8");
     assert.match(bot, /claude --bare --restricted --strict-mcp-config/);
+    assert.match(bot, /^review-eval:$/m, "the review eval runs on GitLab too");
+    assert.ok(paths.includes(".dev-process/review-evals/README.md"));
     assert.match(readFileSync(join(d, ".gitlab/CODEOWNERS"), "utf8"), /^\/\.gitlab-ci\.yml @john\.doe @jane$/m);
   });
 

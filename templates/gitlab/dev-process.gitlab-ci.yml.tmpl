@@ -144,6 +144,109 @@ nightly-review-file:
     - node {{ engine }}/cli/nightly-sweep.mjs parse --area "$SWEEP_AREA" < "$CI_PROJECT_DIR/sweep-out.txt" > "$CI_PROJECT_DIR/findings.json"
     - node {{ engine }}/cli/nightly-sweep.mjs file-issues --area "$SWEEP_AREA" "$CI_PROJECT_DIR/findings.json"
 {{/if}}
+{{#if loops.eval}}
+
+# Review eval (see {{ engine }}/cli/review-eval.mjs): replays the bugs of past MRs against the current review
+# instructions — weekly (schedule with DEV_PROCESS_TASK=eval) and whenever the instructions, the cases or the scoring change
+# on {{ defaultBranch }}. The job that runs Claude has no token, works in read-only worktrees and never sees the case ids or
+# the expected answers; scoring and the report issue happen in the next job, which never runs the AI.
+.review-eval-rules:
+  rules:
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+      when: never
+    - if: $CI_PIPELINE_SOURCE =~ /^(schedule|web)$/ && $DEV_PROCESS_TASK == "eval"
+    - if: $CI_PIPELINE_SOURCE == "push"
+      changes:
+        - {{ instructionsPath }}
+        - {{ securityPath }}
+        - {{ policy.paths.evalCases }}
+        - {{ engine }}/cli/review-eval.mjs
+        - {{ engine }}/core/eval.mjs
+        - {{ engine }}/core/findings.mjs
+        - {{ engine }}/core/ai-output.mjs
+
+review-eval:
+  extends: [.dev-process-bot, .review-eval-rules]
+  # No environment: no bot token here.
+  timeout: 60m
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    # Every case's head must be in the local repository; then the job token leaves the remote URL before any AI runs.
+    - git fetch --quiet origin "+refs/merge-requests/*/head:refs/remotes/mr/*"
+    - git remote set-url origin "$CI_PROJECT_URL.git"
+    - npm install -g --no-audit --no-fund @anthropic-ai/claude-code
+    # The answers stay away from the AI: prompts and heads are prepared first, the cases are deleted from the checkout,
+    # and only then does Claude run, case by case; outputs are named by index until every case has run.
+    - |
+      T="$CI_PROJECT_DIR/.dev-process-eval"
+      mkdir -p "$T/prompts" "$T/heads" "$T/raw" "$T/wt" "$T/out"
+      list="$(node {{ engine }}/cli/review-eval.mjs list)"
+      mapfile -t cases <<< "$list"
+      ids=()
+      for id in "${cases[@]}"; do
+        [ -n "$id" ] || continue
+        ids+=("$id"); n=${#ids[@]}
+        if ! node {{ engine }}/cli/review-eval.mjs prompt "$id" --cli claude > "$T/prompts/$n.txt" ||
+           ! node {{ engine }}/cli/review-eval.mjs head "$id" > "$T/heads/$n"; then
+          echo "case #$n: no prompt or head"
+          rm -f "$T/prompts/$n.txt" "$T/heads/$n"
+        fi
+      done
+      rm -rf .dev-process/review-evals "{{ policy.paths.evalCases }}"
+      for n in $(seq 1 ${#ids[@]}); do
+        [ -f "$T/prompts/$n.txt" ] || continue
+        wt="$T/wt/c$n"
+        git worktree add --quiet --detach "$wt" "$(cat "$T/heads/$n")" || { echo "case #$n: head not found"; continue; }
+        chmod -R a-w "$wt"
+        if (cd "$wt" && timeout 15m env -i HOME="$HOME" PATH="$PATH" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+              claude --bare --restricted --strict-mcp-config -p --tools "Read,Grep,Glob" --permission-mode dontAsk \
+              --output-format json --max-turns 40 < "$T/prompts/$n.txt" > "$T/raw/$n.tmp"); then
+          mv "$T/raw/$n.tmp" "$T/raw/$n.txt"
+        else
+          echo "case #$n: the AI run failed"
+          rm -f "$T/raw/$n.tmp"
+        fi
+        chmod -R u+w "$wt" && git worktree remove --force "$wt"
+      done
+      for n in $(seq 1 ${#ids[@]}); do
+        if [ -f "$T/raw/$n.txt" ]; then mv "$T/raw/$n.txt" "$T/out/${ids[$((n-1))]}.txt"; fi
+      done
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - .dev-process-eval/out
+
+# Also after a failed run (`when: always` on every rule; GitLab refuses a job-level `when` next to `rules`): scoring names
+# the cases without output and fails the job.
+review-eval-report:
+  extends: .dev-process-bot
+  environment:
+    name: dev-process-bot
+    action: access
+  needs:
+    - job: review-eval
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+      when: never
+    - if: $CI_PIPELINE_SOURCE =~ /^(schedule|web)$/ && $DEV_PROCESS_TASK == "eval"
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "push"
+      changes:
+        - {{ instructionsPath }}
+        - {{ securityPath }}
+        - {{ policy.paths.evalCases }}
+        - {{ engine }}/cli/review-eval.mjs
+        - {{ engine }}/core/eval.mjs
+        - {{ engine }}/core/findings.mjs
+        - {{ engine }}/core/ai-output.mjs
+      when: always
+  timeout: 10m
+  script:
+    - node {{ engine }}/cli/review-eval.mjs score --out-dir "$CI_PROJECT_DIR/.dev-process-eval/out" --report-issue
+{{/if}}
 {{#if loops.metrics}}
 
 # Weekly metrics (schedule with DEV_PROCESS_TASK=metrics): appended to the issue labelled `{{ policy.names.metricsLabel }}`.

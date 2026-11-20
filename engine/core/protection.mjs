@@ -114,6 +114,7 @@ export function gitlabPlan(policy, { defaultBranch } = {}) {
     schedules: [
       { task: "poll", cron: "*/10 * * * *", description: `${GITLAB_MARK}: poll (re-judge, missed reviews, queue)` },
       { task: "sweep", cron: "17 3 * * *", description: `${GITLAB_MARK}: nightly sweep` },
+      { task: "eval", cron: "41 18 * * 0", description: `${GITLAB_MARK}: weekly review eval` },
       { task: "metrics", cron: "23 1 * * 1", description: `${GITLAB_MARK}: weekly metrics` },
     ].filter((x) => wanted.has(x.task)),
     // No pipeline events: the trigger starts a pipeline whose own status changes are pipeline events (a loop). MR pipelines

@@ -42,7 +42,7 @@ English: [README.md](README.md).
 - [x] M2 英文文案、双语模板、确定性渲染器，以及 `init`、`doctor`、`upgrade` 三个技能（GitHub + Copilot + 自建队列）
 - [x] M3 GitHub 上的 Claude 评审（评审工作流、评审方适配器、通知）
 - [ ] M4 在 GitHub 沙盒仓库里做端到端验证
-- [x] M5 GitLab 全部档位（适配器、默认分支上的机器人流水线、Claude 评审作业、队列、设置、doctor；用例集回放暂未移植）
+- [x] M5 GitLab 全部档位（适配器、默认分支上的机器人流水线、Claude 评审作业、队列、设置、doctor；含用例集回放）
 - [ ] M6 在 GitLab 上做端到端验证
 - [ ] M7 发布 v1.0.0
 

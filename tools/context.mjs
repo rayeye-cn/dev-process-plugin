@@ -149,7 +149,7 @@ export function policyFrom(a) {
       ? {
           names: { ...GITLAB_TASKS },
           // The schedules the setup creates (the CI jobs for sweep / metrics exist only when these are on).
-          gitlab: { url: a.gitlab.url, tier: a.gitlab.tier, schedules: ["poll", ...(a.loops.sweep && a.paths.security.length ? ["sweep"] : []), ...(a.loops.metrics ? ["metrics"] : [])] },
+          gitlab: { url: a.gitlab.url, tier: a.gitlab.tier, schedules: ["poll", ...(a.loops.sweep && a.paths.security.length ? ["sweep"] : []), ...(a.loops.eval ? ["eval"] : []), ...(a.loops.metrics ? ["metrics"] : [])] },
         }
       : {}),
   });
@@ -225,8 +225,7 @@ export function buildContext(a) {
     queue: { mode: a.queue.mode, self: a.queue.mode === "self", native: a.queue.mode === "native", train: a.queue.mode === "train", jobTimeoutMin: policy.queue.ciTimeoutMin + 20 },
     gitlab: a.gitlab ? { url: a.gitlab.url, tier: a.gitlab.tier, premium: a.gitlab.tier !== "free", ultimate: a.gitlab.tier === "ultimate" } : null,
     classifier: a.classifier,
-    // GitLab: the review eval is not ported yet (it replays past changes in per-case checkouts).
-    loops: { sweep: a.loops.sweep && a.paths.security.length > 0, eval: a.loops.eval && a.forge !== "gitlab", metrics: a.loops.metrics },
+    loops: { sweep: a.loops.sweep && a.paths.security.length > 0, eval: a.loops.eval, metrics: a.loops.metrics },
     aiCli: aiCliFor(a.reviewer),
     release: a.release,
     stagedRollout: a.stagedRollout,

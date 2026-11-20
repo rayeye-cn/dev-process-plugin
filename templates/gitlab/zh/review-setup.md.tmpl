@@ -14,6 +14,9 @@
 | 合并队列 | 打 `{{ policy.names.queueLabel }}` 标签：机器人在「最新的 `{{ defaultBranch }}` + 这个 MR」（分支 `{{ policy.names.queueContext }}/pr-N`）上重跑 CI，绿了、门仍满足才合入 | `.gitlab/dev-process.gitlab-ci.yml` |
 | 谁能合并 | `{{ defaultBranch }}` 禁止推送、只有 Maintainer 能合并；人都是 Developer，所以只有机器人能合、而且只经队列{{#if gitlab.premium}}；另有审批设置与 Code Owner 审批{{/if}} | `{{ engine }}/core/protection.mjs`、`.gitlab/CODEOWNERS` |
 | 事后快速发现 | 每周值班、发版后 48 小时盯反馈、按模板做事故复盘 | `docs/dev-process/on-call.md`、`docs/incident-review-template.md` |
+{{#if loops.eval}}
+| 事故变成用例集 | 每周（以及评审说明或用例改动时），Claude 按同样的说明重新评审每个历史事故的 MR，看能不能抓到；干净的 MR 用来数误报 | `{{ policy.paths.evalCases }}`；定时任务「dev-process: weekly review eval」；结果在标签 `{{ policy.names.evalLabel }}` 的 issue 里 |
+{{/if}}
 {{#if loops.metrics}}
 | 量人力与噪音 | 每周指标：他人批准与评论、等待时长、{{ ai }} 意见的去向、回滚与修复 | 定时任务「dev-process: weekly metrics」；结果在标签 `{{ policy.names.metricsLabel }}` 的 issue 里 |
 {{/if}}

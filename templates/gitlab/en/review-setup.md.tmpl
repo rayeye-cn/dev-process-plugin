@@ -14,6 +14,9 @@ This repository's review process follows how the Claude Code team does code revi
 | Merge queue | Add the `{{ policy.names.queueLabel }}` label: the bot re-runs CI on "latest `{{ defaultBranch }}` + this MR" (branch `{{ policy.names.queueContext }}/pr-N`) and merges when green and the gate still passes | `.gitlab/dev-process.gitlab-ci.yml` |
 | Who can merge | `{{ defaultBranch }}` takes no pushes and only Maintainers merge; people are Developers, so only the bot merges, and only through the queue{{#if gitlab.premium}}; approval settings and Code Owner approval on top{{/if}} | `{{ engine }}/core/protection.mjs`, `.gitlab/CODEOWNERS` |
 | Catching problems fast | Weekly on-call rotation, 48 hours of watching feedback after a release, incident reviews from a template | `docs/dev-process/on-call.md`, `docs/incident-review-template.md` |
+{{#if loops.eval}}
+| Incidents become the eval set | Weekly (and whenever the review instructions or cases change), Claude reviews each past incident's MR with the same instructions to see whether it catches the problem; clean MRs count false positives | `{{ policy.paths.evalCases }}`; schedule "dev-process: weekly review eval"; results in the issue labeled `{{ policy.names.evalLabel }}` |
+{{/if}}
 {{#if loops.metrics}}
 | Measuring human time and noise | Weekly metrics: approvals and comments from others, waiting time, what happened to {{ ai }}'s comments, reverts and fixes | Schedule "dev-process: weekly metrics"; results in the issue labeled `{{ policy.names.metricsLabel }}` |
 {{/if}}
