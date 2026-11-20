@@ -41,9 +41,14 @@ export function parseApplyTo(text) {
   return m ? m[1].split(",").map((s) => s.trim()) : null;
 }
 
-/** Paths that hold the process itself, per forge: changing them must always need a human. */
+/**
+ * Paths that hold the process itself, per forge: changing them must always need a human. Besides the CI files and our
+ * own directory, everything that steers the Claude Code running the review: CLAUDE.md files at any depth (read as
+ * instructions), `.claude/` (settings and hooks, which run shell commands) and `.mcp.json` (MCP servers it may start).
+ * A change there could make the review job run commands or post a fake review for its own PR.
+ */
 export function processPaths(policy) {
-  return [...(policy.forge === "gitlab" ? [".gitlab-ci.yml", ".gitlab/**"] : [".github/**"]), "CLAUDE.md", ".dev-process/**"];
+  return [...(policy.forge === "gitlab" ? [".gitlab-ci.yml", ".gitlab/**"] : [".github/**"]), "**/CLAUDE.md", ".claude/**", ".mcp.json", ".dev-process/**"];
 }
 
 /**
@@ -96,7 +101,9 @@ export function checkConsistency({ policy, codeowners = null, applyTo = null, cl
   if (tracked !== null) {
     const both = tracked.filter((f) => hit(f, policy.highPaths) && hit(f, policy.lowOnlyPaths));
     if (both.length) add("error", "consistency.highAndLow", { files: both });
-    const dead = [...new Set([...policy.highPaths, ...policy.securityPaths])].filter((g) => !tracked.some((f) => posix.matchesGlob(f, g)));
+    // Process paths guard files that may only appear later (a PR adding .claude/settings.json is the case to catch).
+    const guards = new Set(processPaths(policy));
+    const dead = [...new Set([...policy.highPaths, ...policy.securityPaths])].filter((g) => !guards.has(g) && !tracked.some((f) => posix.matchesGlob(f, g)));
     if (dead.length) add("warn", "consistency.deadGlobs", { globs: dead });
   }
   return out;

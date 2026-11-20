@@ -52,7 +52,7 @@ describe("policy from answers", () => {
   const p = policyFrom(a);
 
   it("process files are always high; required checks follow the CI jobs; the release gate is skippable", () => {
-    for (const x of [".github/**", "CLAUDE.md", ".dev-process/**", "src/auth/**"]) assert.ok(p.highPaths.includes(x), x);
+    for (const x of [".github/**", "**/CLAUDE.md", ".claude/**", ".mcp.json", ".dev-process/**", "src/auth/**"]) assert.ok(p.highPaths.includes(x), x);
     assert.deepEqual(p.checks, { required: ["checks", "tests"], skippable: ["release-gate"] });
     assert.equal(p.queue.ciTimeoutMin, 180); // heavy release gate
     assert.equal(policyFrom({ ...a, ci: { ...a.ci, releaseGate: null } }).queue.ciTimeoutMin, 120);
@@ -94,7 +94,7 @@ describe("context", () => {
     assert.equal(c.ci.releaseGate.runsOn, '["self-hosted","macOS"]');
     assert.equal(c.queue.jobTimeoutMin, 200);
     assert.ok(c.codeownersLines.includes("/src/auth/ @alice @bob"));
-    assert.ok(c.codeownersLines.includes("/CLAUDE.md @alice @bob"));
+    assert.ok(c.codeownersLines.includes("/**/CLAUDE.md @alice @bob"));
     assert.equal(c.loops.sweep, true);
     assert.equal(buildContext(validateAnswers({ ...raw, paths: { ...raw.paths, security: [] } })).loops.sweep, false);
     assert.equal(c.s, WORKFLOW_STRINGS.zh);

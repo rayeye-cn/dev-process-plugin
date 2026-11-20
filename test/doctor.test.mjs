@@ -16,7 +16,7 @@ import { requiredContexts, RULESET_NAME } from "../engine/core/protection.mjs";
 const sha = (s) => createHash("sha256").update(s).digest("hex");
 const dirs = [];
 after(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
-const policy = withDefaults({ trustedAuthors: ["alice", "bob"], highPaths: [".github/**", "CLAUDE.md", ".dev-process/**"], securityPaths: [".github/**"], reviewer: "claude" });
+const policy = withDefaults({ trustedAuthors: ["alice", "bob"], highPaths: [".github/**", "**/CLAUDE.md", ".claude/**", ".mcp.json", ".dev-process/**"], securityPaths: [".github/**"], reviewer: "claude" });
 
 function repo(over = {}) {
   const d = mkdtempSync(join(tmpdir(), "dp-doctor-"));

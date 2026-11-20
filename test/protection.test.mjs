@@ -60,7 +60,7 @@ describe("GitHub ruleset", () => {
 describe("consistency of the process files", () => {
   const good = withDefaults({
     trustedAuthors: ["alice", "bob"],
-    highPaths: [".github/**", "CLAUDE.md", ".dev-process/**", "src/update/**"],
+    highPaths: [".github/**", "**/CLAUDE.md", ".claude/**", ".mcp.json", ".dev-process/**", "src/update/**"],
     securityPaths: ["src/update/**"],
     lowOnlyPaths: ["docs/**"],
   });
@@ -94,8 +94,9 @@ describe("consistency of the process files", () => {
   });
 
   it("process files are high, per forge", () => {
-    assert.deepEqual(processPaths(good), [".github/**", "CLAUDE.md", ".dev-process/**"]);
-    assert.deepEqual(processPaths({ ...good, forge: "gitlab" }), [".gitlab-ci.yml", ".gitlab/**", "CLAUDE.md", ".dev-process/**"]);
+    assert.deepEqual(processPaths(good), [".github/**", "**/CLAUDE.md", ".claude/**", ".mcp.json", ".dev-process/**"]);
+    assert.deepEqual(processPaths({ ...good, forge: "gitlab" }), [".gitlab-ci.yml", ".gitlab/**", "**/CLAUDE.md", ".claude/**", ".mcp.json", ".dev-process/**"]);
+    assert.deepEqual(processPaths(good).map(globToCodeowners), ["/.github/", "/**/CLAUDE.md", "/.claude/", "/.mcp.json", "/.dev-process/"]);
     const f = checkConsistency({ policy: { ...good, highPaths: ["src/update/**"] } });
     assert.deepEqual(codesOf(f), ["consistency.processNotHigh"]);
   });

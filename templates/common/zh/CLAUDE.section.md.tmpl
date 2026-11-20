@@ -23,7 +23,7 @@
 
 ## 改评审规则本身
 
-- 流程文件（CI 工作流、`CLAUDE.md`、`{{ configPath }}`、`{{ engine }}/`、`{{ instructionsPath }}`、`{{ securityPath }}`）一律是 high 档，并受 CODEOWNERS 约束：{{ ai }} 读的是 {{ pr }} 分支上的评审指令，改这些文件的 {{ pr }} 必须由另一个人审。
+- 流程文件（CI 工作流、各层的 `CLAUDE.md`、`.claude/`、`.mcp.json`、`{{ configPath }}`、`{{ engine }}/`、`{{ instructionsPath }}`、`{{ securityPath }}`）一律是 high 档，并受 CODEOWNERS 约束：{{ ai }} 读的是 {{ pr }} 分支上的评审指令，评审作业里的 Claude Code 还会读 `CLAUDE.md` 与 `.claude/`（其中的 hook 能执行命令），改这些文件的 {{ pr }} 必须由另一个人审。
 - 门和队列读的是目标分支（通常是 `{{ defaultBranch }}`）上的 `{{ configPath }}`，所以改分档、人数或命令要合入后才生效，{{ pr }} 改不了自己的门。
 - `{{ configPath }}`、CODEOWNERS、评审指令和工作流都是 dev-process 插件按 `.dev-process/answers.json` 渲染出来的：要改规则，改 answers 再重新渲染，不要手改生成的文件。CODEOWNERS 是 `highPaths` 的镜像，一致性检查（`node {{ engine }}/cli/doctor.mjs`）会对比两者。
 - {{ ai }} 反复漏报或反复误报的，改 `{{ instructionsPath }}` 或 `{{ securityPath }}`，同时在 `{{ policy.paths.evalCases }}` 补一条用例。

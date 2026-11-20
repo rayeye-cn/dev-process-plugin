@@ -81,7 +81,7 @@
 
 ## 信任边界（哪些挡得住、哪些挡不住）
 
-- **{{ pr }} 改不了自己的门**：`{{ policy.names.gateContext }}`{{#if queue.self}} 和合并队列{{/if}}只用默认分支上的工作流定义（由 `pull_request_target` / `issue_comment` / `workflow_run` 触发），只检出目标分支上的脚本和 `{{ configPath }}`，从不执行 {{ pr }} 分支的代码。改流程文件（`.github/**`、`CLAUDE.md`、`.dev-process/**`）的 {{ pr }} 是 high 档，且受 CODEOWNERS 约束，必须另一位所有者批准。
+- **{{ pr }} 改不了自己的门**：`{{ policy.names.gateContext }}`{{#if queue.self}} 和合并队列{{/if}}只用默认分支上的工作流定义（由 `pull_request_target` / `issue_comment` / `workflow_run` 触发），只检出目标分支上的脚本和 `{{ configPath }}`，从不执行 {{ pr }} 分支的代码。改流程文件（`.github/**`、各层 `CLAUDE.md`、`.claude/**`、`.mcp.json`、`.dev-process/**`）的 {{ pr }} 是 high 档，且受 CODEOWNERS 约束，必须另一位所有者批准。
 {{#if queue.self}}
 - **合并队列不信现成的 `{{ policy.names.gateContext }}` status**：commit status 按提交存，两个 {{ pr }} 指向同一个提交时共用一个结论；{{#if isCopilot}}Copilot 评审触发的重判又可能停在 `action_required`{{else}}AI 评审之后的重判也可能没跑成{{/if}}，让 status 过时。所以队列在入队测试前、合入前，各对**这个 {{ pr }}** 只读地重跑一次完整判定（它自己的签署、批准、对话），通过且与现有 status 一致才放行；不一致就请 `{{ policy.names.gateWorkflow }}` 重判（status 只由它写，同一个 {{ pr }} 的判定串行执行）。
 {{/if}}

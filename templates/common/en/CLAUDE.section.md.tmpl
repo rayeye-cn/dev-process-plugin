@@ -23,7 +23,7 @@ Modeled on how the Claude Code team does code review: most changes merge with at
 
 ## Changing the review rules themselves
 
-- Process files (the CI workflows, `CLAUDE.md`, `{{ configPath }}`, `{{ engine }}/`, `{{ instructionsPath }}`, `{{ securityPath }}`) are always high and covered by CODEOWNERS: {{ ai }} reads the review instructions from the {{ pr }} branch, so a {{ pr }} that changes them must be reviewed by another person.
+- Process files (the CI workflows, `CLAUDE.md` at any depth, `.claude/`, `.mcp.json`, `{{ configPath }}`, `{{ engine }}/`, `{{ instructionsPath }}`, `{{ securityPath }}`) are always high and covered by CODEOWNERS: {{ ai }} reads the review instructions from the {{ pr }} branch, and the Claude Code in the review job also reads `CLAUDE.md` and `.claude/` (whose hooks can run commands), so a {{ pr }} that changes them must be reviewed by another person.
 - The gate and the queue read `{{ configPath }}` from the target branch (usually `{{ defaultBranch }}`), so changes to tiers, people or commands take effect only after they merge; a {{ pr }} cannot change its own gate.
 - `{{ configPath }}`, CODEOWNERS, the review instructions and the workflows are rendered by the dev-process plugin from `.dev-process/answers.json`: to change the rules, edit the answers and re-render rather than editing generated files. CODEOWNERS mirrors `highPaths`, and the consistency check (`node {{ engine }}/cli/doctor.mjs`) compares the two.
 - When {{ ai }} keeps missing something or keeps flagging non-problems, change `{{ instructionsPath }}` or `{{ securityPath }}` and add a case to `{{ policy.paths.evalCases }}`.
