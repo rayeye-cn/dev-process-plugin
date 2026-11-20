@@ -54,9 +54,17 @@ export const DEFAULTS = Object.freeze({
   checks: { required: ["checks", "tests"], skippable: [] },
   queue: { mode: "self", ciTimeoutMin: 120, maxAttempts: 3, pollSeconds: 20, gatePendingStaleMin: 20, mergeMethod: "merge" },
   patterns: { revert: "^(revert|回滚)", fix: "^fix\\b" },
+  /** Where the vendored process keeps its files in the target repository. */
+  paths: {
+    instructions: ".dev-process/ai-review/instructions.md",
+    security: ".dev-process/ai-review/security.md",
+    evalCases: ".dev-process/review-evals/cases.json",
+  },
   sweep: { maxFindings: 5, dedupLines: 15 },
-  eval: { lineSlack: 10 },
-  classifier: { enabled: true, riskHints: [] },
+  /** promptHints: project-specific lines appended to the eval prompt (e.g. "check the retired-symbols list in …"). */
+  eval: { lineSlack: 10, maxDiffBytes: 68000, promptHints: [] },
+  /** riskHints: project-specific risk categories for the classifier prompt (one line each). */
+  classifier: { enabled: true, riskHints: [], maxDiffBytes: 80000 },
   protection: { bypassActorId: 5, integrationId: 15368 },
 });
 
