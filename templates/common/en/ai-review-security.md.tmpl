@@ -1,0 +1,27 @@
+{{#if isCopilot}}
+---
+applyTo: "{{#each policy.securityPaths}}{{ this }}{{#unless @last}},{{/unless}}{{/each}}"
+---
+
+{{/if}}
+# Security review checklist (go through every item for {{ pr }}s that touch these paths)
+
+{{#if isClaude}}
+Applies to: {{#each policy.securityPaths}}`{{ this }}`{{#unless @last}}, {{/unless}}{{/each}}. When a change touches these paths, go through the checklist below in addition to the general review instructions.
+
+{{/if}}
+- **Credentials**: tokens, passwords, API keys and private keys are read and written only through the project's secret store; never hard-coded or committed, and never in logs, error messages, plaintext database columns, telemetry events or anything a client can read.
+- **Authentication and authorization**: every entry point authenticates, then authorizes; permission checks happen on the server or privileged side, never trusting the identity, role or IDs a client sends; new endpoints deny by default rather than allow.
+- **External input is untrusted**: user input, uploaded files, network responses and model output are escaped or passed through parameterized APIs before they reach a shell command, SQL, a file path or HTML; file paths are protected against `..` traversal and symlinks.
+- **Privileged boundaries**: the less privileged side (browser, client, plugin, other tenants) calls the privileged side only through declared interfaces; never hand out the ability to run arbitrary commands, read or write arbitrary paths, or fetch arbitrary URLs; new interfaces validate their inputs.
+- **Update and release channels**: download and update sources are https only, with signatures or digests verified; never loosen signature checks, downgrade protection or release-channel checks.
+- **Telemetry and logs**: collect only documented fields, and nothing you can do without; never log personal data, raw device identifiers or secrets; when the user turns telemetry off, nothing is recorded or sent.
+- **CI and review configuration**: workflows never give repository secrets or self-hosted runners to {{ pr }}s from forks; `pull_request_target` never checks out and runs the {{ pr }} branch's code; text such as {{ pr }} titles and branch names reaches scripts through environment variables, never interpolated into `run:`. Call out explicitly any change that loosens `{{ configPath }}`, CODEOWNERS or the review instructions (`{{ instructionsPath }}` and this file).
+{{#if securityChecklist}}
+
+## Project-specific items
+
+{{#each securityChecklist}}
+- {{ this }}
+{{/each}}
+{{/if}}

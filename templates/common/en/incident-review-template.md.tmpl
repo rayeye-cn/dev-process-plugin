@@ -1,0 +1,34 @@
+# Incident review template
+
+Copy this into the incident's issue and fill it in. The point is not to find a person but to find **which layer should have caught it and didn't**, and to put the fix into that layer.
+
+## What happened
+
+- Symptom (what users saw):
+- Impact (which version, how many users, for how long):
+- How it was found (on-call / user report / monitoring or usage metrics / ourselves):
+- {{ pr }} that introduced it: #
+- {{ pr }} that fixed it: #    Fixed in version:
+
+## Which layer should have caught it
+
+For each layer, answer "why didn't this layer catch it", and land at least one improvement:
+
+| Layer | What happened there | Improvement ("none" if none) |
+| --- | --- | --- |
+| Before the {{ pr }} (local checks, `/code-review`, `/security-review`) |  |  |
+| {{ ai }} review (`{{ instructionsPath }}`, security checklist `{{ securityPath }}`) |  |  |
+| Required checks (`.github/workflows/{{ policy.names.ciWorkflow }}`: {{#each ci.requiredChecks}}`{{ this }}`{{#unless @last}}, {{/unless}}{{/each}}{{#if ci.releaseGate}}, `{{ ci.releaseGate.name }}`{{/if}}) |  |  |
+| People by risk (was the `{{ policy.names.gateContext }}` tier too low, did the right people look) |  |  |
+| Merge queue |  |  |
+{{#if stagedRollout}}
+| Dogfooding and staged rollout |  |  |
+{{else}}
+| Dogfooding and staged rollout (not in place yet: would it have limited the impact this time?) |  |  |
+{{/if}}
+| On-call detection and stopping the damage |  |  |
+
+## Review eval
+
+- [ ] Add the {{ pr }} that introduced the problem to `{{ policy.paths.evalCases }}` (`kind: "bug"`, with the file, the lines and a one-sentence description; the fields are listed in the `README.md` next to it). From then on, the weekly review eval, and every change to the review instructions, checks whether {{ ai }} catches it.
+- [ ] If {{ ai }} did flag the problem at the time but the comment was answered with `wrong:` or `wontfix:`, note it here and consider changing the review instructions.

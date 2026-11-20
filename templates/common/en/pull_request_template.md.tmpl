@@ -1,0 +1,36 @@
+Closes #
+<!-- The issue this {{ pr }} resolves; it is closed automatically on merge. Delete the line if there is none. -->
+
+## What changed
+
+-
+
+## Verification
+
+<!-- Paste the commands you actually ran and their results (how many, passed or failed); add screenshots for UI changes. "Tested" on its own does not count. -->
+
+- Project checks:
+- Related tests:
+- `/code-review high` before opening the {{ pr }}{{#if policy.securityPaths}} (plus `/security-review` if you touched a security review path){{/if}}: N found, N valid, N fixed
+
+## Risk tier
+
+<!-- low / medium / high, with a reason. {{ policy.names.gateContext }} decides the final tier from the change; if you put it too low, it will be raised. -->
+
+-
+
+## What happens if it breaks
+
+<!-- How to recover if this causes a problem after merging: revert this {{ pr }} / ship a fix{{#if stagedRollout}} / pause the staged rollout (set it to 0%){{/if}} / turn off a feature flag. Spell out what cannot be undone (data migrations, versions already shipped, state in external systems). -->
+
+-
+
+## Notes
+
+<!-- Anything reviewers should look at closely, known limitations, follow-up work. -->
+
+-
+
+## Author sign-off
+
+<!-- The author, in person, comments `{{ policy.commands.signoff }} <head commit sha>` on the {{ pr }}: "I have read the evidence above and own this change." Claude must not post it. Sign again after new commits. -->

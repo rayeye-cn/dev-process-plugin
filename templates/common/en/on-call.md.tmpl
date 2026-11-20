@@ -1,0 +1,36 @@
+# On-call
+
+Following the Claude Code team's practice: what review doesn't catch is covered by **finding it fast and stopping it fast**. Most changes merge after only one person has looked at them, so someone has to keep watching after the merge.
+
+## Rotation
+
+The on-call person changes every Monday, in table order from top to bottom, then starts over. At handover, say so in the team channel and hand over anything left open from the previous week.
+
+| GitHub account | Notes (backup, time zone, …) |
+| --- | --- |
+{{#each people.onCall}}
+| `{{ this }}` |  |
+{{/each}}
+
+## Duties during your week
+
+- **Watch feedback for 48 hours after a release**: user reports and issues passed on by support, error monitoring, whether key usage metrics dropped noticeably, whether the new version starts or deploys normally.
+- **When a release is bad**: stop the damage first, then fix. {{#if stagedRollout}}Pause the staged rollout (set it to 0%) first{{else}}Pull or roll back the release first (revert the {{ pr }} that caused it, or ship the last good version again){{/if}}, then find the change's author and fix it together. The fix goes through normal review at a risk tier of at least medium.
+{{#if queue.self}}
+- **The merge queue is stuck**: read the runs of `.github/workflows/{{ policy.names.queueWorkflow }}` and the comments on ejected {{ pr }}s.{{#if ci.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{else}}{{#if ci.releaseGate.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{/if}}{{/if}}
+{{else}}
+- **The merge queue is stuck**: look at the repository's merge queue page and the required checks of the {{ pr }} at the front.{{#if ci.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{else}}{{#if ci.releaseGate.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{/if}}{{/if}}
+{{/if}}
+{{#if loops.metrics}}
+- **Read the weekly metrics every Monday**: the issue labeled `{{ policy.names.metricsLabel }}` shows human review time, reverts and fixes, {{ ai }}'s false-positive rate{{#if queue.self}} and the number of waivers{{/if}}. Bring anything unusual to the weekly meeting.
+{{/if}}
+{{#if loops.sweep}}
+- **Triage nightly sweep issues**: labeled `{{ policy.names.sweepLabel }}`. Check whether each one is real: if so, open a {{ pr }} or hand it to someone who knows that code; if not, close it with the reason.
+{{/if}}
+{{#if loops.eval}}
+- **Check the review eval results**: the issue labeled `{{ policy.names.evalLabel }}`. If the hit rate dropped, look first at what changed in the review instructions recently.
+{{/if}}
+
+## After an incident
+
+Write the incident review with `docs/incident-review-template.md` and put it in the incident's issue. The review asks which layer of the system should have caught the problem, never who is to blame; "you land it, you own it" exists because the author knows the context best.

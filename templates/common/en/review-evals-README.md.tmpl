@@ -1,0 +1,31 @@
+# Review eval
+
+Following the Claude Code team's practice: **the {{ pr }}s that caused incidents are the eval set**. The `review-eval` workflow runs every week, and again whenever the review instructions or the cases change. For each case it gives the diff of the {{ pr }} that introduced the problem to {{ aiCli.name }}, with the same in-repository instructions as the {{ ai }} review on {{ pr }}s (`{{ instructionsPath }}` and `{{ securityPath }}`), and checks whether the problem is caught. Clean {{ pr }}s count false positives.
+
+- The reviewer can read the whole repository at that {{ pr }}'s head, read-only, because many problems only show up against files outside the diff.
+- A hit: the same file is reported with a line inside the case's line range ± {{ policy.eval.lineSlack }} lines. The right file alone counts as a "file hit".
+- This measures whether "instructions + model" catch the problem; it is not the hosted review product on {{ pr }}s itself. After changing the review instructions, check here first that the score did not drop.
+- When {{ aiCli.name }} did not run (quota, permissions, policy), the case is recorded as "no usable output", never as a miss; the run fails and the previous report stays as it was.
+- Results are in the issue labeled `{{ policy.names.evalLabel }}`. The scoring method is documented at the top of `{{ engine }}/core/eval.mjs`.
+
+## Adding a case
+
+During an incident review (`docs/incident-review-template.md`), add a `kind: "bug"` entry to `{{ policy.paths.evalCases }}` (a JSON array):
+
+| Field | Value |
+| --- | --- |
+| `id` | Lowercase words joined by hyphens, unique |
+| `kind` | `"bug"` |
+| `introducingPr` / `baseSha` / `headSha` | The number of the {{ pr }} that introduced the problem, and its base and head commits (40 characters) |
+| `file` / `lines` | The file with the problem and the line range `[from, to]` in the head version |
+| `fixPr` | The number of the {{ pr }} that fixed it; `null` if it was fixed by a direct push to `{{ defaultBranch }}`, with `fixCommit` set instead |
+| `description` | One sentence describing the problem |
+| `confidence` | `high` / `medium` (`high` only after someone who knows that code has confirmed it) |
+
+Diffs over {{ policy.eval.maxDiffBytes }} bytes are truncated (code first, docs last): after adding a case, check the report to make sure the part with the problem is still in.
+
+## Clean cases
+
+Use `kind: "clean"` with `file`, `lines` and `fixPr` set to `null`. Pick small {{ pr }}s that nobody touched again after they merged: every finding on them counts as a false positive.
+
+An empty array is fine: a new project has no incidents yet, and the eval skips instead of failing.

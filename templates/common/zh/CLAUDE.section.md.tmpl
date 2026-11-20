@@ -1,0 +1,29 @@
+## 评审流程
+
+照 Claude Code 团队的评审做法：大多数改动最多一个人看过就合入，但回滚和事故不能因此变多。分档、人数、命令名都在 `{{ configPath }}`；一次性启用步骤和常见问题见 `docs/dev-process/review-setup.md`。
+
+1. **提 {{ pr }} 前先自查**：在本地跑项目的检查和与改动相关的测试，把命令和输出原样贴进 {{ pr }}（不贴输出就不算跑过）。再跑 `/code-review high`{{#if policy.securityPaths}}；改到安全评审路径（{{#each policy.securityPaths}}`{{ this }}`{{#unless @last}}、{{/unless}}{{/each}}）时另跑 `/security-review`{{/if}}。自查发现了什么、修了什么，写进 {{ pr }} 描述，不要只留在对话里。
+2. **{{ pr }} 要小**：非文档改动超过约 {{ policy.sizeThresholdLines }} 行，就拆成几个串联的 {{ pr }}。方向上的问题先开 issue 讨论，别等 {{ pr }} 写完了再被拦下。
+3. **{{ pr }} 模板全填**：改了什么、验证（贴命令与结果）、风险档、出问题怎么办。
+4. **{{ ai }} 的每条意见都要回应**：要么修掉，要么回复以 {{#each policy.threadReplyTags}}`{{ this }}`{{#unless @last}} / {{/unless}}{{/each}} 开头并写明理由，然后 resolve。没 resolve 的对话挡合并；这几个标签也用来统计 {{ ai }} 的误报率。
+5. **风险档由 `{{ policy.names.gateContext }}` 按改动判定，不由作者定**：
+   - 改到总要有人看的路径（`{{ configPath }}` 的 `highPaths`）是 high；只改文档这类路径（`lowOnlyPaths`）是 low；其余是 medium。非文档改动超过 {{ policy.sizeThresholdLines }} 行至少是 medium。{{#if classifier}}AI 分档员会给第二意见，但它只能把档位往上提，不会往下降。{{/if}}
+   - 要几个人：{{#if policy.requiredHumans.low}}low {{ policy.requiredHumans.low }} 人{{else}}low 不用人看{{/if}}，medium {{ policy.requiredHumans.medium }} 人，high {{ policy.requiredHumans.high }} 人。人数里包括作者本人的签署，其余是他人对当前提交的批准。作者不在信任名单里，再多要 {{ policy.untrustedExtraApprovals }} 人。
+   - 每一档都要 {{ ai }} 真正评审过当前提交（额度不足、出错之类的通知不算）。{{ ai }} 故障或额度用完时，有写权限的人在 {{ pr }} 评论里发 `{{ policy.commands.waiver }} <head sha>`：门不再等 {{ ai }}，改为多要 {{ policy.aiReviewWaiverExtraApprovals }} 位他人批准。豁免和签署一样只管这一个提交，有新提交要重发。
+6. **作者签署只能由人本人发**：在 {{ pr }} 评论里发 `{{ policy.commands.signoff }} <head sha>`，表示读过证据、为这次改动负责。有新提交要重签。**Claude 不得代发 `{{ policy.commands.signoff }}` 或 `{{ policy.commands.waiver }}`，也不得代人批准 {{ pr }}。**
+{{#if queue.self}}
+7. **合并只走队列**：随时可以给 {{ pr }} 打 `{{ policy.names.queueLabel }}` 标签入队。队列会等 `{{ policy.names.gateContext }}` 满足（包括 {{ ai }} 评审到了），再在「最新的 `{{ defaultBranch }}` + 这个 {{ pr }}」上重跑 CI，绿了才合入。不要手动合并：必需检查 `{{ policy.names.queueContext }}` 只有队列会写成功，而且所有必需检查都绑定了 GitHub Actions 来源，人手发的 status 不算。
+{{else}}
+7. **合并只走队列**：门满足后，把 {{ pr }} 加入合并队列（{{ pr }} 页面上的 **Merge when ready**）。队列会在「最新的 `{{ defaultBranch }}` + 这个 {{ pr }}」上重跑必需检查，绿了才合入。不要手动合并：所有必需检查都绑定了 GitHub Actions 来源，人手发的 status 不算。
+{{/if}}
+8. **评审最多 {{ policy.reviewRoundCap }} 轮**：{{ ai }} 到第 {{ policy.reviewRoundCap }} 轮还在提新问题，就停下来重新考虑方案（方向对不对、该不该拆），而不是继续一轮轮地修。
+9. **你合进去的，出了问题你修**：改动出了问题由作者跟进；发版后由当周值班盯反馈，见 `docs/dev-process/on-call.md`。
+10. **紧急绕过**：只有仓库管理员能在 {{ pr }} 上绕过规则合并。用的时候在 {{ pr }} 里写明原因，事后补齐评审。
+11. **不许绕门**：Claude 不得为了让检查变绿而手发 commit status，也不得为此改 CI 工作流、`{{ configPath }}` 或 `{{ engine }}/`。门判红，就照它置顶评论里「还差」的几条去补；觉得门判错了，在 {{ pr }} 里说明，请人来改规则。
+
+## 改评审规则本身
+
+- 流程文件（CI 工作流、`CLAUDE.md`、`{{ configPath }}`、`{{ engine }}/`、`{{ instructionsPath }}`、`{{ securityPath }}`）一律是 high 档，并受 CODEOWNERS 约束：{{ ai }} 读的是 {{ pr }} 分支上的评审指令，改这些文件的 {{ pr }} 必须由另一个人审。
+- 门和队列读的是目标分支（通常是 `{{ defaultBranch }}`）上的 `{{ configPath }}`，所以改分档、人数或命令要合入后才生效，{{ pr }} 改不了自己的门。
+- `{{ configPath }}`、CODEOWNERS、评审指令和工作流都是 dev-process 插件按 `.dev-process/answers.json` 渲染出来的：要改规则，改 answers 再重新渲染，不要手改生成的文件。CODEOWNERS 是 `highPaths` 的镜像，一致性检查（`node {{ engine }}/cli/doctor.mjs`）会对比两者。
+- {{ ai }} 反复漏报或反复误报的，改 `{{ instructionsPath }}` 或 `{{ securityPath }}`，同时在 `{{ policy.paths.evalCases }}` 补一条用例。

@@ -1,0 +1,8 @@
+# 「总要有人看」的路径：与 {{ configPath }} 里的 highPaths 一一对应，一致性检查会对比两者，对不上就报错。
+# 不要直接改这个文件：改 .dev-process/answers.json 的 paths.high，再用 dev-process 插件重新渲染（{{ configPath }} 和本文件会一起更新）。
+# 分支保护开了「需要代码所有者评审」：改到这些路径的 {{ pr }}，必须由作者以外的一位所有者批准。
+# 所有者都要在信任名单里；每行至少写两位，因为作者批准不了自己的 {{ pr }}。
+
+{{#each codeownersLines}}
+{{ this }}
+{{/each}}

@@ -1,0 +1,114 @@
+# Review process: how it fits together and one-time setup
+
+This repository's review process follows how the Claude Code team does code review: most changes merge with at most one human in the loop, backed by risk-based reviewers, a merge queue and catching problems fast after the fact. The day-to-day rules are in the "Review process" section of `CLAUDE.md` at the repository root; this page covers the layers, what admins need to do, and what is and isn't defended.
+
+## Layers
+
+| Layer | What it is here | Files |
+| --- | --- | --- |
+| Before the {{ pr }} | Run the checks locally and paste the output, `/code-review high`{{#if policy.securityPaths}}, `/security-review` for security review paths{{/if}} | `CLAUDE.md` |
+| AI review on every {{ pr }} | {{#if isCopilot}}GitHub Copilot code review, requested automatically on every push{{else}}The Claude review job, run automatically on every push{{/if}}, following the instruction files in this repository | `{{ instructionsPath }}`, `{{ securityPath }}` |
+| Security findings block merges | Security checklist + branch protection "all conversations resolved" + `{{ policy.names.gateContext }}` requires an answer to every {{ ai }} comment | Same as above |
+| Required checks | {{#each ci.requiredChecks}}`{{ this }}`{{#unless @last}}, {{/unless}}{{/each}}{{#if ci.releaseGate}}; release {{ pr }}s also run `{{ ci.releaseGate.name }}`{{/if}} | `.github/workflows/{{ policy.names.ciWorkflow }}` |
+| People by risk | `{{ policy.names.gateContext }}`: path-based tier{{#if classifier}} + AI second opinion (can only raise it){{/if}} → how many people | `{{ configPath }}`, `.github/workflows/{{ policy.names.gateWorkflow }}` |
+{{#if queue.self}}
+| Merge queue | Self-built queue: re-runs CI on "latest `{{ defaultBranch }}` + this {{ pr }}" and merges when green | `.github/workflows/{{ policy.names.queueWorkflow }}` |
+{{else}}
+| Merge queue | GitHub's native merge queue: re-runs the required checks on "latest `{{ defaultBranch }}` + the {{ pr }}s ahead" before merging | Branch protection ruleset |
+{{/if}}
+| Branch protection | Ruleset `dev-process`: changes land only through {{ pr }}s, required checks, conversations resolved, CODEOWNERS | `{{ engine }}/core/protection.mjs`, `.github/CODEOWNERS` |
+{{#if stagedRollout}}
+| Dogfooding and staged rollout | New versions go to the team first, then out in stages that can be paused at any time | The project's release process |
+{{/if}}
+| Catching problems fast | Weekly on-call rotation, 48 hours of watching feedback after a release, incident reviews from a template | `docs/dev-process/on-call.md`, `docs/incident-review-template.md` |
+{{#if loops.eval}}
+| Incidents become the eval set | Every week (and whenever the review instructions or cases change), {{ aiCli.name }} reviews each past incident's {{ pr }} with the same instructions to see whether it catches the problem; clean {{ pr }}s count false positives | `{{ policy.paths.evalCases }}`, `.github/workflows/review-eval.yml` |
+{{/if}}
+{{#if loops.metrics}}
+| Measuring human time and noise | Weekly metrics: approvals and comments from others, waiting time, what happened to {{ ai }}'s comments and its false-positive rate, reverts and fixes | `.github/workflows/review-metrics.yml`; results in the issue labeled `{{ policy.names.metricsLabel }}` |
+{{/if}}
+{{#if loops.sweep}}
+| Nightly sweep | Each night one security review path is read (read-only) for existing bugs; findings with a file and line become issues for a human to verify | `.github/workflows/nightly-review.yml`; results in issues labeled `{{ policy.names.sweepLabel }}` |
+{{/if}}
+
+## Admin checklist (in this order)
+
+{{#if isCopilot}}
+1. **Copilot code review covers every author and bills the organization**: organization settings → Copilot → Policies → "Copilot code review":
+   - Check "Allow reviews without a Copilot license": {{ pr }}s from authors without a Copilot seat get reviewed too, billed to the organization. According to GitHub, this also covers {{ pr }}s from outside contributors and bots such as Dependabot.
+   - Set "Choose how members with a Copilot license are billed" to **Organization**. The default, Member, means that once the author's personal quota runs out Copilot stops reviewing and leaves only a notice such as "insufficient remaining quota" on the {{ pr }}.
+   - On the same page, "AI credit paid usage" must be Enabled and the organization's AI credits budget must not be $0. With a $0 budget and "stop at the limit" checked, code review and Copilot CLI both stop as soon as the credits included in the plan are used up (the CLI reports `budget limit reached`).
+   - This failure is **silent**: no error, just a notice on the {{ pr }} or nothing at all, and the gate keeps saying it is waiting for Copilot. Check billing and the budget here first; if that can't be fixed right away, fall back to the waiver command (see the FAQ below).
+1. **Request a Copilot review on every push**: repository settings → Rules → Rulesets, create a ruleset targeting the default branch (an organization ruleset works too), turn on "Automatically request Copilot code review" and check "Review new pushes". The gate needs a Copilot review of the **head** commit; reviewing only the first push is not enough. The `dev-process` ruleset generated later does not include this, so it needs its own ruleset.
+1. **Bill Copilot CLI to the organization**: organization settings → Copilot → Policies → "Copilot CLI", choose "Allow use of Copilot CLI billed to the organization". The AI second opinion on risk tiers, the nightly sweep and the review eval (where enabled) call Copilot CLI with the workflow's own `GITHUB_TOKEN`. Without this policy the tier falls back to paths only, and the sweep and the eval fail.
+{{else}}
+1. **Add the `ANTHROPIC_API_KEY` repository secret**: repository settings → Secrets and variables → Actions → New repository secret. The Claude review job, the AI second opinion on risk tiers, the nightly sweep and the review eval (where enabled) all use it, billed to the Anthropic account that owns the key.
+   - When the key is revoked or out of credits, the review job fails and the gate keeps saying it is waiting for Claude. Replace the key or add credits first; if that can't be done right away, fall back to the waiver command (see the FAQ below).
+   - Keep it a repository-level secret. GitHub does not pass repository secrets to workflows triggered by {{ pr }}s from forks.
+1. **Install the Claude GitHub app**: open Claude Code in this repository and run `/install-github-app`, then follow the prompts to install it on this repository; or install it from github.com/apps/claude and select only this repository. This process already generated the review workflow, so this step only needs the app installed.
+{{/if}}
+{{#if ci.selfHosted}}
+1. **Self-hosted runners**: `tests`{{#if ci.releaseGate.selfHosted}} and `{{ ci.releaseGate.name }}`{{/if}} run on self-hosted runners (`runs-on: {{ ci.testsRunsOn }}`). Repository settings → Actions → Runners → New self-hosted runner, and give it the labels above.
+   - The machine needs access to GitHub and your package sources; while it sleeps or is offline these checks stay queued, and so does the merge queue.
+   - The runner runs {{ pr }} code as the OS user it was installed under, with read and write access to that user's files: give it a dedicated account, not someone's personal one.
+   - {{ pr }}s from forks must never reach it; see "Trust boundaries" below.
+{{else}}
+{{#if ci.releaseGate.selfHosted}}
+1. **Self-hosted runners**: `{{ ci.releaseGate.name }}` runs on self-hosted runners (`runs-on: {{ ci.releaseGate.runsOn }}`). Repository settings → Actions → Runners → New self-hosted runner, and give it the labels above.
+   - The machine needs access to GitHub and your package sources; while it sleeps or is offline, checks on release {{ pr }}s stay queued, and so does the merge queue.
+   - The runner runs {{ pr }} code as the OS user it was installed under, with read and write access to that user's files: give it a dedicated account, not someone's personal one.
+   - {{ pr }}s from forks must never reach it; see "Trust boundaries" below.
+{{/if}}
+{{/if}}
+1. **Open a test {{ pr }} and see every required check report**: make sure {{#each ci.requiredChecks}}`{{ this }}`, {{/each}}{{#if ci.releaseGate}}`{{ ci.releaseGate.name }}` (shown as skipped on non-release {{ pr }}s), {{/if}}and `{{ policy.names.gateContext }}` all report a result{{#if queue.self}}; after adding the `{{ policy.names.queueLabel }}` label, `{{ policy.names.queueContext }}` must report too. Ideally, take this {{ pr }} through the whole process and let the queue merge it{{/if}}.
+1. **Turn on branch protection last** (repository admin):
+   ```bash
+   GH_TOKEN=$(gh auth token) node {{ engine }}/cli/apply-protection.mjs --repo {{ repo }} --dry-run   # see what would be written
+   GH_TOKEN=$(gh auth token) node {{ engine }}/cli/apply-protection.mjs --repo {{ repo }}
+   ```
+   Turning it on before the previous step passes blocks every {{ pr }}. To roll back: repository settings → Rules → Rulesets, set `dev-process` to Disabled.
+   - What the ruleset enforces: the default branch changes only through {{ pr }}s, with no deletion and no force push; 0 base approvals (the gate computes how many people each tier needs); approvals are dismissed on new pushes; CODEOWNERS paths need an owner's approval; every conversation must be resolved; required checks are bound to GitHub Actions{{#if queue.native}}; plus GitHub's merge queue rule{{/if}}.
+   - The ruleset is code too: when the review rules change, re-render, merge, and run this command again.
+   - Once it is on, repository admins can still bypass the ruleset to merge a {{ pr }} (not to push directly). Use that only for an emergency fix or an explicit maintainer decision, and write the reason in the {{ pr }} and in the merge commit message.
+1. **Check everything with doctor**:
+   ```bash
+   node {{ engine }}/cli/doctor.mjs                                  # local: consistency, workflows present, engine not edited by hand
+   GH_TOKEN=$(gh auth token) node {{ engine }}/cli/doctor.mjs --remote   # plus GitHub: ruleset active, required checks match{{#if isClaude}}, secret present{{/if}}
+   ```
+   Fix every error it reports, and run it again after each re-render or branch protection change.
+
+## Trust boundaries (what is and isn't defended)
+
+- **A {{ pr }} cannot change its own gate**: `{{ policy.names.gateContext }}`{{#if queue.self}} and the merge queue{{/if}} use only the workflow definitions on the default branch (triggered by `pull_request_target` / `issue_comment` / `workflow_run`), check out only the target branch's scripts and `{{ configPath }}`, and never run code from the {{ pr }} branch. A {{ pr }} that changes process files (`.github/**`, `CLAUDE.md`, `.dev-process/**`) is high and covered by CODEOWNERS, so another owner must approve it.
+{{#if queue.self}}
+- **The merge queue does not trust an existing `{{ policy.names.gateContext }}` status**: commit statuses are stored per commit, so two {{ pr }}s pointing at the same commit share one result; and {{#if isCopilot}}a re-run triggered by a Copilot review can stop at `action_required`{{else}}the re-run after an AI review can fail to run{{/if}}, leaving the status stale. So before testing and again before merging, the queue re-runs the full decision read-only for **this {{ pr }}** (its own sign-off, approvals and threads), and lets it through only when that passes and agrees with the stored status. When they disagree it asks `{{ policy.names.gateWorkflow }}` to re-run (only that workflow writes the status, and runs for one {{ pr }} are serialized).
+{{/if}}
+- **Statuses posted by hand don't count**: required checks are bound to GitHub Actions, so a `{{ policy.names.gateContext }}`{{#if queue.self}} or `{{ policy.names.queueContext }}`{{/if}} status posted through the statuses API with a personal token does not satisfy the ruleset.
+- **Not defended**: someone with write access writing a workflow on their own branch that posts statuses to another {{ pr }}. That is a deliberate insider bypass; this process does not defend against it and relies on CODEOWNERS and team agreement (rule 11 in the "Review process" section of `CLAUDE.md`). To defend that layer, post statuses from a dedicated GitHub App whose private key lives in an environment only the default branch can use.
+- **With self-hosted runners, keep forking disabled**: for a private repository, turn forking off at both the organization ("Allow forking of private repositories") and the repository ("Allow forking"), and leave "Run workflows from fork pull requests" unchecked in the Actions settings. The reason: a {{ pr }} from a fork can edit its own copy of the CI workflow and point `runs-on` at your self-hosted runner, and its code then runs on your machine. The fork checks in the workflows and the queue's refusal of forks are only a second line of defense. Don't use self-hosted runners with a public repository.
+
+## FAQ
+
+- **`{{ policy.names.gateContext }}` stays red**: read the pinned `{{ policy.names.gateContext }}` comment on the {{ pr }}; the "Still missing" list is what remains. The author signs off in person with `{{ policy.commands.signoff }} <head sha>` and signs again after new commits.
+- **The gate says it is waiting for {{ ai }} to review the head commit**: every tier needs a real {{ ai }} review of the current head.
+{{#if isCopilot}}
+  - Copilot usually reviews within a few minutes of each push (thanks to the "Request a Copilot review on every push" step). If it doesn't, re-request Copilot under Reviewers on the {{ pr }}.
+  - The gate **does not refresh by itself** when the review lands: workflows triggered by Copilot need approval and stop at `action_required`. Post any comment on the {{ pr }} (the author's sign-off counts) to re-run it{{#if queue.self}}; for {{ pr }}s already labeled `{{ policy.names.queueLabel }}`, every queue run re-runs it too{{/if}}.
+  - If the gate's comment quotes a notice (such as "…insufficient remaining quota."), Copilot did not actually review: check the Copilot billing and AI credits budget step above.
+{{else}}
+  - The review job runs after every push; if it failed (revoked key, no credits, timeout), re-run it from the Actions tab.
+  - If the review landed and the gate did not refresh, post any comment on the {{ pr }} (the author's sign-off counts) to re-run it{{#if queue.self}}; for {{ pr }}s already labeled `{{ policy.names.queueLabel }}`, every queue run re-runs it too{{/if}}.
+{{/if}}
+  - When {{ ai }} is down or can't be paid for right away, someone with write access comments `{{ policy.commands.waiver }} <head sha>` on the {{ pr }}. The gate stops waiting for {{ ai }} and instead raises the number of approvals needed from others by {{ policy.aiReviewWaiverExtraApprovals }}. The author may post it too: one person cannot waive for themselves alone, because the extra approval has to come from someone else.
+  - It is written like a sign-off: the command at the start of a line, a sha of at least 7 characters. It covers only that commit, so new commits need a new waiver; deleting or editing the comment revokes it. Waivers from bots or from people without write access don't count.
+  - If {{ ai }} cannot review any file in the {{ pr }} (for example, it only touches files it skips), use the waiver too.
+  - Who waived and when is recorded in the gate's comment{{#if queue.self}} and in the merge commit (an `AI-Review-Waived:` line){{#if loops.metrics}}; the weekly metrics count waivers from the merge commits{{/if}}{{/if}}.
+- **The {{ pr }}'s target branch changed** (including stacked {{ pr }}s: when the one below merges, GitHub retargets the next one to `{{ defaultBranch }}`): {{ ai }} reviews, sign-offs, approvals and waivers from before the change no longer count.
+  - Why: retargeting doesn't change the head and isn't a push, and all of these are bound to the head, yet the diff is now different. Otherwise anyone could open a {{ pr }} against a branch carrying extra changes, collect reviews and a sign-off, then retarget it to `{{ defaultBranch }}` and skip review.
+  - On each re-run, if every {{ ai }} review predates the change, the gate asks for a new review{{#if isCopilot}} (if that fails, re-request Copilot under Reviewers by hand){{else}} (if it doesn't start, re-run the review job from the Actions tab){{/if}}; sign-offs and approvals have to be given again.
+  - The cost: a stacked {{ pr }} whose diff didn't really change still goes through it once more. Asking once too often is better than guessing whether the old target branch was already merged into the new one.
+- **{{ ai }}'s comment is wrong**: reply starting with `wrong:` and a reason, then resolve; `intended:`, `wontfix:` and `fixed:` work the same way. The tags are how {{ ai }}'s false-positive rate is measured, so don't resolve a thread without replying.
+{{#if queue.self}}
+- **The queue says the same commit was tested {{ policy.queue.maxAttempts }} times in a row**: the queue tests the same {{ pr }} on the same head at most {{ policy.queue.maxAttempts }} times, so it can't hold the CI runners forever while `{{ defaultBranch }}` keeps moving. Once `{{ defaultBranch }}` settles, add the `{{ policy.names.queueLabel }}` label again (the count starts over).
+{{/if}}
+- **Emergency fix**: repository admins can bypass the ruleset to merge a {{ pr }}. Afterwards, write the reason in the {{ pr }} and complete the review.

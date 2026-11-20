@@ -1,0 +1,8 @@
+# Paths that always need a human: one line per entry of highPaths in {{ configPath }}. The consistency check compares the two and fails on any difference.
+# Don't edit this file by hand: change paths.high in .dev-process/answers.json and re-render with the dev-process plugin ({{ configPath }} and this file are updated together).
+# The branch protection requires code owner review: a {{ pr }} touching these paths needs an approval from an owner other than its author.
+# Every owner must be on the trusted list, and each line names at least two, because authors cannot approve their own {{ pr }}s.
+
+{{#each codeownersLines}}
+{{ this }}
+{{/each}}

@@ -1,0 +1,31 @@
+# 评审用例集
+
+照 Claude Code 团队的做法：**出过事的 {{ pr }} 就是评测集**。`review-eval` 工作流每周跑一次，评审指令或用例变了时也会跑：把每个用例「引入问题的 {{ pr }}」的 diff 交给 {{ aiCli.name }}，按与 {{ pr }} 上 {{ ai }} 评审同一份的仓内指令（`{{ instructionsPath }}` 和 `{{ securityPath }}`）去评，看抓不抓得到；干净的 {{ pr }} 用来数误报。
+
+- 评审员能只读地查看该 {{ pr }} head 版本的整个仓库，因为不少问题要对照 diff 之外的文件才看得出来。
+- 命中：报出了同一个文件，且行号落在用例的行号范围 ± {{ policy.eval.lineSlack }} 行之内；只报对了文件算「文件命中」。
+- 量的是「指令 + 模型」能不能抓到问题，不是 {{ pr }} 上那个托管评审产品本身。改评审指令后，先看这里的分数有没有掉。
+- {{ aiCli.name }} 没跑成（额度、权限、策略）时记为「没有可用输出」，不算漏报；这次运行判失败，上一份报告保留不动。
+- 结果在带 `{{ policy.names.evalLabel }}` 标签的 issue 里。口径见 `{{ engine }}/core/eval.mjs` 文件头。
+
+## 加用例
+
+事故复盘（`docs/incident-review-template.md`）时，往 `{{ policy.paths.evalCases }}`（一个 JSON 数组）里加一条 `kind: "bug"`：
+
+| 字段 | 填什么 |
+| --- | --- |
+| `id` | 小写英文加短横线，唯一 |
+| `kind` | `"bug"` |
+| `introducingPr` / `baseSha` / `headSha` | 引入问题的 {{ pr }} 号，以及它的 base、head 提交（40 位） |
+| `file` / `lines` | 问题所在的文件，和 head 版本里的行号范围 `[起, 止]` |
+| `fixPr` | 修它的 {{ pr }} 号；直接推到 `{{ defaultBranch }}` 修的写 `null`，另填 `fixCommit` |
+| `description` | 一句话描述问题 |
+| `confidence` | `high` / `medium`（由熟悉这段代码的人确认过才写 `high`） |
+
+diff 超过 {{ policy.eval.maxDiffBytes }} 字节时会截断（代码在前、文档在后）：加完看一眼报告，确认问题所在的那段还在。
+
+## 干净用例
+
+写 `kind: "clean"`，`file`、`lines`、`fixPr` 都写 `null`。选合入后没人再改过、规模不大的 {{ pr }}：它上面报出的每一条都算误报。
+
+文件是空数组也没关系：新项目还没有事故，用例集会跳过，不算失败。
