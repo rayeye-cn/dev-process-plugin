@@ -26,7 +26,8 @@ test("function messages render with empty params without throwing", () => {
     for (const lang of LANGUAGES) {
       for (const [k, v] of Object.entries(m[lang])) {
         if (typeof v !== "function") continue;
-        const p = new Proxy({}, { get: (_, key) => (key === "notes" || key === "logins" || key === "paths" || key === "tags" ? [] : undefined) });
+        // every param reads as an empty array: array methods work, and it renders as "" inside a template string
+        const p = new Proxy({}, { get: () => [] });
         assert.equal(typeof v(p, h), "string", `${lang}:${k}`);
       }
     }
