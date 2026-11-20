@@ -36,6 +36,14 @@ export function repoFromRemote(url) {
   return m ? `${m[1]}/${m[2]}` : null;
 }
 
+/** `group/…/name` from any remote URL (https or scp-like ssh), or null: GitLab paths nest. */
+export function projectFromRemote(url) {
+  const s = String(url ?? "").trim();
+  const path = /^[a-z]+:\/\/(?:[^/@]+@)?[^/]+\/(.+)$/i.exec(s)?.[1] ?? /^[^@\s]+@[^:]+:(.+)$/.exec(s)?.[1] ?? null;
+  const clean = path?.replace(/\.git\/?$/, "").replace(/\/+$/, "");
+  return clean && clean.split("/").length >= 2 ? clean : null;
+}
+
 /** Host of a remote URL (for GHES / GitLab detection). */
 export function hostOf(url) {
   const s = String(url ?? "").trim();
@@ -167,8 +175,9 @@ export function detectLocal(target) {
       existing: {
         claudeMd: files.has("CLAUDE.md"),
         agentsMd: files.has("AGENTS.md"),
-        codeowners: [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"].filter((p) => existsSync(join(root, p))),
-        prTemplate: existsSync(join(root, ".github", "pull_request_template.md")),
+        codeowners: [".github/CODEOWNERS", ".gitlab/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"].filter((p) => existsSync(join(root, p))),
+        prTemplate: existsSync(join(root, ".github", "pull_request_template.md")) || existsSync(join(root, ".gitlab", "merge_request_templates")),
+        gitlabCi: existsSync(join(root, ".gitlab-ci.yml")),
         workflows: existsSync(workflowsDir) ? readdirSync(workflowsDir).filter((f) => /\.ya?ml$/.test(f)) : [],
         devProcess: existsSync(join(root, ".dev-process", "answers.json")),
       },
@@ -176,11 +185,12 @@ export function detectLocal(target) {
     proposal: {
       version: 1,
       forge,
+      ...(forge === "gitlab" ? { gitlab: { url: `https://${host}`, tier: "free" } } : {}),
       language,
       project: { name: pkg?.name ?? basename(root), description: pkg?.description ?? "" },
-      repo: repoFromRemote(remoteUrl),
+      repo: forge === "github" ? repoFromRemote(remoteUrl) : projectFromRemote(remoteUrl),
       defaultBranch,
-      paths: { high: [...new Set([...risky, ...MANIFESTS.filter((m) => files.has(m))])], security: [...new Set([...security, ".github/**"])], lowOnly },
+      paths: { high: [...new Set([...risky, ...MANIFESTS.filter((m) => files.has(m))])], security: [...new Set([...security, ...(forge === "gitlab" ? [".gitlab-ci.yml", ".gitlab/**"] : [".github/**"])])], lowOnly },
       ci: { ...ci, testsRunner: "hosted" },
       release: { label: "release", versionFiles: cis.flatMap((c) => c.releaseFiles) },
     },
@@ -212,11 +222,60 @@ export function detectRemote(repo) {
   return { reachable: true, visibility: r.visibility, ownerType: r.owner?.type, plan, nativeQueue, defaultBranch: r.default_branch, collaborators };
 }
 
-function main() {
+const MIN_GITLAB = [17, 11];
+
+/**
+ * GitLab facts through the API with your token (`GITLAB_TOKEN`): the version (17.11+ needed) and edition, the tier by
+ * probing (a non-admin cannot read the license): `approval_rules` is 404 on CE, 403 on EE without Premium, 200 from
+ * Premium; `external_status_checks` is 200 only on Ultimate. Members with Developer or more (trusted-author candidates).
+ */
+export async function detectGitlab(url, project, { token, fetch: fetchImpl = globalThis.fetch } = {}) {
+  const api = `${String(url).replace(/\/+$/, "")}/api/v4`;
+  const get = async (path) => {
+    const res = await fetchImpl(`${api}${path}`, { headers: { "private-token": token, accept: "application/json" } });
+    const text = await res.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null;
+    }
+    return { status: res.status, data };
+  };
+  const P = `/projects/${encodeURIComponent(project)}`;
+  const meta = await get("/metadata");
+  if (meta.status !== 200) return { reachable: false, status: meta.status };
+  const version = String(meta.data?.version ?? "");
+  const [major, minor] = version.split(".").map(Number);
+  const versionOk = major > MIN_GITLAB[0] || (major === MIN_GITLAB[0] && minor >= MIN_GITLAB[1]);
+  const proj = await get(P);
+  const rules = await get(`${P}/approval_rules`);
+  const checks = await get(`${P}/external_status_checks`);
+  const tier = checks.status === 200 ? "ultimate" : rules.status === 200 ? "premium" : "free";
+  const members = ((await get(`${P}/members/all?per_page=100`)).data ?? [])
+    .filter((m) => (m.access_level ?? 0) >= 30 && !m.bot && !/^(project|group)_\d+_bot/.test(m.username ?? ""))
+    .map((m) => m.username);
+  return { reachable: true, version, versionOk, enterprise: Boolean(meta.data?.enterprise), edition: meta.data?.enterprise ? "ee" : "ce", tier, defaultBranch: proj.data?.default_branch ?? null, visibility: proj.data?.visibility ?? null, members };
+}
+
+async function main() {
   const argv = process.argv.slice(2);
   const ti = argv.indexOf("--target");
   const target = ti >= 0 ? argv[ti + 1] : ".";
   const out = detectLocal(target);
+  if (argv.includes("--remote") && out.proposal.repo && out.proposal.forge === "gitlab") {
+    if (!process.env.GITLAB_TOKEN) out.facts.remote = { reachable: false, why: "GITLAB_TOKEN is not set" };
+    else {
+      const remote = await detectGitlab(out.proposal.gitlab.url, out.proposal.repo, { token: process.env.GITLAB_TOKEN });
+      out.facts.remote = remote;
+      if (remote.reachable) {
+        out.proposal.defaultBranch = remote.defaultBranch ?? out.proposal.defaultBranch;
+        out.proposal.gitlab.tier = remote.tier;
+        out.proposal.queue = { mode: "self" };
+        out.proposal.people = { trustedAuthors: remote.members };
+      }
+    }
+  }
   if (argv.includes("--remote") && out.proposal.repo && out.proposal.forge === "github") {
     const remote = detectRemote(out.proposal.repo);
     out.facts.remote = remote;
@@ -230,4 +289,7 @@ function main() {
   console.log(JSON.stringify(out, null, 2));
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((e) => {
+  console.error(`[detect] ${e.stack || e.message}`);
+  process.exitCode = 1;
+});

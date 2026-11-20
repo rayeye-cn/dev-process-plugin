@@ -87,3 +87,30 @@ describe("detectLocal", () => {
     assert.equal(proposal.ci.tests[0].run, "go test ./...");
   });
 });
+
+describe("GitLab", async () => {
+  const { detectGitlab, projectFromRemote } = await import("../tools/detect.mjs");
+  it("nested project paths from https and ssh remotes", () => {
+    assert.equal(projectFromRemote("https://gl.example.com/grp/sub/app.git"), "grp/sub/app");
+    assert.equal(projectFromRemote("git@gl.example.com:grp/app.git"), "grp/app");
+    assert.equal(projectFromRemote("ssh://git@gl.example.com:2222/grp/sub/app"), "grp/sub/app");
+    assert.equal(projectFromRemote("https://gl.example.com/app"), null);
+  });
+  const fake = (codes) => async (url) => {
+    const path = new URL(url).pathname.replace(/^\/api\/v4/, "");
+    const hit = Object.entries(codes).find(([k]) => path.endsWith(k));
+    const [status, body] = hit ? hit[1] : [404, { message: "404" }];
+    return new Response(JSON.stringify(body), { status });
+  };
+  const base = { "/metadata": [200, { version: "17.11.2-ee", enterprise: true }], "/projects/grp%2Fapp": [200, { default_branch: "main" }], "/members/all": [200, [{ username: "alice", access_level: 30 }, { username: "guest", access_level: 10 }, { username: "project_1_bot_x", access_level: 40, bot: true }]] };
+  it("tier by probing: CE 404 / EE without a license 403 ⇒ free; approval rules 200 ⇒ premium; status checks 200 ⇒ ultimate", async () => {
+    const run = (extra) => detectGitlab("https://gl.example.com", "grp/app", { token: "t", fetch: fake({ ...base, ...extra }) });
+    const free = await run({ "/approval_rules": [403, {}], "/external_status_checks": [401, {}] });
+    assert.deepEqual([free.tier, free.versionOk, free.edition, free.members], ["free", true, "ee", ["alice"]]);
+    assert.equal((await run({ "/approval_rules": [200, []], "/external_status_checks": [401, {}] })).tier, "premium");
+    assert.equal((await run({ "/approval_rules": [200, []], "/external_status_checks": [200, []] })).tier, "ultimate");
+    const old = await detectGitlab("https://gl.example.com", "grp/app", { token: "t", fetch: fake({ ...base, "/metadata": [200, { version: "17.10.0", enterprise: false }] }) });
+    assert.deepEqual([old.versionOk, old.edition], [false, "ce"]);
+  });
+});
+

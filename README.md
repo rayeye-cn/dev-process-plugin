@@ -4,7 +4,7 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 
 中文说明见 [README.zh.md](README.zh.md).
 
-> **Status: pre-release (M3).** Installs on GitHub with GitHub Copilot or Claude as the reviewer and the built-in merge queue; not yet validated end to end on a real repository (M4). The native merge queue and GitLab come next.
+> **Status: pre-release (M5).** Installs on GitHub (GitHub Copilot or Claude as the reviewer) and on GitLab 17.11+ (Claude), both with the built-in merge queue. GitHub is partly validated on a sandbox repository (M4: the Claude-review scenarios wait for an API key); GitLab is unit-tested against the documented API and waits for its end-to-end run (M6). The native merge queue and GitLab merge trains come later.
 
 ## What it installs
 
@@ -21,9 +21,9 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 
 ## Supported
 
-- **Forges:** GitHub.com. Planned: GitHub Enterprise Server, self-managed GitLab (Free/CE, Premium, Ultimate; ≥ 17.11, tier detected, with what each tier can enforce stated in the generated docs).
-- **AI reviewer:** GitHub Copilot, or Claude (`anthropics/claude-code-action` in a generated workflow; needs `ANTHROPIC_API_KEY` and the Claude GitHub app). Planned: Claude as a CLI job on GitLab.
-- **Merge queue:** the built-in queue. Planned: GitHub's native merge queue where the plan allows it, GitLab merge trains.
+- **Forges:** GitHub.com; GitLab 17.11+ (self-managed or gitlab.com; Free/CE, Premium, Ultimate; tier detected, with what each tier can enforce stated in the generated docs; design in `docs/design/gitlab.md`). Planned: GitHub Enterprise Server.
+- **AI reviewer:** GitHub Copilot, or Claude (GitHub: `anthropics/claude-code-action` in a generated workflow, needs `ANTHROPIC_API_KEY` and the Claude GitHub app; GitLab: a read-only Claude Code job whose findings the process bot posts).
+- **Merge queue:** the built-in queue (on GitLab it builds candidates from GitLab's own merge ref). Planned: GitHub's native merge queue where the plan allows it, GitLab merge trains.
 - **Language:** Chinese or English, chosen at init.
 
 ## Install (once released)
@@ -42,7 +42,7 @@ Then, in the repository to set up: `/dev-process:init`.
 - [x] M2 English catalog, bilingual templates, deterministic renderer, `init`, `doctor` and `upgrade` skills (GitHub + Copilot + built-in queue)
 - [x] M3 Claude reviewer on GitHub (review workflow, reviewer adapter, notices)
 - [ ] M4 End-to-end validation in a sandbox GitHub repository
-- [ ] M5 Self-managed GitLab (all tiers)
+- [x] M5 GitLab, all tiers (forge adapter, bot pipelines on the default branch, Claude review job, queue, setup, doctor; the review eval is not ported yet)
 - [ ] M6 End-to-end validation on GitLab
 - [ ] M7 v1.0.0
 

@@ -4,7 +4,7 @@
 
 English: [README.md](README.md).
 
-> **状态：预发布（M3）。** 已能在 GitHub 上安装：评审方用 GitHub Copilot 或 Claude，合并用自建队列；还没在真实仓库上端到端验证（M4）。原生合并队列和 GitLab 在后面几个阶段。
+> **状态：预发布（M5）。** 已能装到 GitHub（评审方用 GitHub Copilot 或 Claude）和 GitLab 17.11 及以上（评审方用 Claude），合并都用自建队列。GitHub 已在沙盒仓库上部分验证（M4：Claude 评审相关场景等 API Key）；GitLab 按文档写的 API 做了单元测试，等端到端验证（M6）。原生合并队列与 GitLab 合并列车在后面。
 
 ## 装上之后有什么
 
@@ -21,9 +21,9 @@ English: [README.md](README.md).
 
 ## 支持范围
 
-- **代码托管**：GitHub.com。计划支持：GitHub Enterprise Server、私有化部署的 GitLab（Free/CE、Premium、Ultimate，版本 ≥ 17.11，自动识别档位，生成的文档里写明每一档能强制哪些规则）。
-- **AI 评审**：GitHub Copilot，或者 Claude（生成的工作流里跑 `anthropics/claude-code-action`；需要 `ANTHROPIC_API_KEY` 和 Claude GitHub App）。计划支持：GitLab 上用 Claude CLI 作业。
-- **合并队列**：自建队列。计划支持：套餐允许时用 GitHub 原生合并队列，GitLab 用合并列车。
+- **代码托管**：GitHub.com；GitLab 17.11 及以上（私有化部署或 gitlab.com；Free/CE、Premium、Ultimate，自动识别档位，生成的文档里写明每一档能强制哪些规则；设计见 `docs/design/gitlab.md`）。计划支持：GitHub Enterprise Server。
+- **AI 评审**：GitHub Copilot，或者 Claude（GitHub：生成的工作流里跑 `anthropics/claude-code-action`，需要 `ANTHROPIC_API_KEY` 和 Claude GitHub App；GitLab：只读的 Claude Code 作业给出意见，由流程机器人代发）。
+- **合并队列**：自建队列（GitLab 上用 GitLab 自己算的合并结果做试合）。计划支持：套餐允许时用 GitHub 原生合并队列，GitLab 用合并列车。
 - **语言**：中文或英文，初始化时选。
 
 ## 安装（发布后）
@@ -42,7 +42,7 @@ English: [README.md](README.md).
 - [x] M2 英文文案、双语模板、确定性渲染器，以及 `init`、`doctor`、`upgrade` 三个技能（GitHub + Copilot + 自建队列）
 - [x] M3 GitHub 上的 Claude 评审（评审工作流、评审方适配器、通知）
 - [ ] M4 在 GitHub 沙盒仓库里做端到端验证
-- [ ] M5 私有化 GitLab（全部档位）
+- [x] M5 GitLab 全部档位（适配器、默认分支上的机器人流水线、Claude 评审作业、队列、设置、doctor；用例集回放暂未移植）
 - [ ] M6 在 GitLab 上做端到端验证
 - [ ] M7 发布 v1.0.0
 

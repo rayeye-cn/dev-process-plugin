@@ -1,6 +1,6 @@
 ---
 name: init
-description: Install a Claude-Code-team-style development and review process into a repository — CLAUDE.md conventions, AI review (GitHub Copilot or Claude), a tiered risk gate with author sign-off, a merge queue, branch protection, CI, nightly AI sweep, review eval and weekly metrics, in Chinese or English. Use when the user asks to set up, initialize or adopt this development/review process for a project.
+description: Install a Claude-Code-team-style development and review process into a repository on GitHub or GitLab — CLAUDE.md conventions, AI review (GitHub Copilot or Claude), a tiered risk gate with author sign-off, a merge queue, branch protection, CI, nightly AI sweep, review eval and weekly metrics, in Chinese or English. Use when the user asks to set up, initialize or adopt this development/review process for a project.
 when_to_use: The user runs /dev-process:init, or asks to set up the Claude Code team's review process, risk gate, merge queue or "the dev process" in a repository.
 disable-model-invocation: true
 argument-hint: "[repository path, default: current directory]"
@@ -16,7 +16,8 @@ The plugin's files are at `${CLAUDE_PLUGIN_ROOT}`. In the commands below, `<repo
 
 - Never post `/signoff` or the AI-review waiver command, never approve a pull request, never hand-post commit statuses — those are the humans' accountability, also during setup.
 - Never overwrite a file the user wrote (a render "conflict") without the user's explicit yes for that path.
-- Never enable branch protection (`apply-protection`) before a test pull request shows every required check reporting, and never without the user's explicit yes: it blocks every PR if a check never reports.
+- Never run `apply-protection` without the user's explicit yes, and always show its `--dry-run` output first. On GitHub, also never before a test pull request shows every required check reporting: it blocks every PR if a check never reports. On GitLab it is the whole setup (protection, settings, the bot token, variables, trigger, webhook, schedules) and runs right after the init merge request merges.
+- Never ask the user to paste a token into the conversation. Commands that need one read it from the environment; the user runs those themselves with `!` in front.
 - Work on a branch, never on the default branch. Ask before pushing and before opening the pull request.
 
 ## 1. Preconditions
@@ -24,33 +25,38 @@ The plugin's files are at `${CLAUDE_PLUGIN_ROOT}`. In the commands below, `<repo
 Run and check:
 - `git -C <repo> rev-parse --show-toplevel` (a git repository) and `git -C <repo> remote get-url origin`.
 - `node --version` is 24 or newer (the engine uses `fetch` and `path.matchesGlob`).
-- `gh auth status` (GitHub). If not logged in, ask the user to run `! gh auth login` themselves.
 
-Only github.com is supported in this version. If the remote's host is anything else — a GitLab instance (self-managed GitLab often has a host name without "gitlab" in it) or GitHub Enterprise Server — tell the user that support for their host is in development and stop.
+The forge comes from the remote's host:
+- **github.com** → GitHub. `gh auth status` must pass; if not logged in, ask the user to run `! gh auth login` themselves.
+- **A host with "gitlab" in its name** → GitLab (self-managed or gitlab.com). Version 17.11 or later.
+- **Any other host**: ask the user whether it is a self-managed GitLab (continue as GitLab) or GitHub Enterprise Server (not supported in this version: say so and stop).
+
+GitLab: the remote facts (version, tier, members) need the user's own token (Maintainer or Owner, `api` scope) in `GITLAB_TOKEN`; the user runs the detect command below themselves, prefixed with `!` and with `GITLAB_TOKEN=<token>` in front (with the glab CLI, the output of `glab auth token`). Without it, detect without `--remote` and ask for the tier.
 
 ## 2. Detect
 
 `node <plugin>/tools/detect.mjs --target <repo> --remote`
 
-It prints `{ facts, proposal }`. `proposal` has the answers shape (see `<plugin>/tools/answers.mjs`, whose header documents every field). If `facts.existing.devProcess` is true, the repository is already set up: offer `/dev-process:upgrade` (same answers, newer plugin) or continue with the existing `<repo>/.dev-process/answers.json` as the starting point to change answers.
+It prints `{ facts, proposal }` (GitLab: `facts.remote` has the version — stop if `versionOk` is false — the edition and the tier found by probing). `proposal` has the answers shape (see `<plugin>/tools/answers.mjs`, whose header documents every field). If `facts.existing.devProcess` is true, the repository is already set up: offer `/dev-process:upgrade` (same answers, newer plugin) or continue with the existing `<repo>/.dev-process/answers.json` as the starting point to change answers.
 
 ## 3. Confirm the answers with the user
 
 Show the proposal as a short summary, then ask (AskUserQuestion, at most 4 questions per call, recommended option first):
 
 1. **Project language** (zh / en) for everything the team reads: CLAUDE.md, PR template, review instructions, gate comments, docs. Default: `facts.language`.
-2. **AI reviewer** — both cost money, say so:
+2. **AI reviewer** (GitHub only; on GitLab it is Claude, billed to an Anthropic API key, and fork MRs are reviewed too) — both cost money, say so:
    - `copilot`: GitHub Copilot code review. Needs the organization's Copilot code review policy (reviews without a license, billed to the organization, an AI-credit budget above zero) and a ruleset that requests a review on every push.
    - `claude`: a generated review workflow running `anthropics/claude-code-action`, billed to an Anthropic API key. Needs the `ANTHROPIC_API_KEY` repository secret and the Claude GitHub app installed on the repository. Pull requests from forks and from bots are not reviewed (no secret there); the waiver covers them.
    Recommend the one the organization already pays for; with neither, `claude` needs only a key.
-3. **Merge queue**: `self` — the built-in queue that re-runs CI on the latest default branch before merging. The forge's native merge queue is not supported yet even where `facts.remote.nativeQueue` is true (the renderer refuses `queue.mode: "native"`); mention it as a later option when it applies.
+3. **Merge queue**: `self` — the built-in queue that re-runs CI on the latest default branch before merging (on GitLab the only mode for now; merge trains are refused by the renderer). The forge's native merge queue is not supported yet even where `facts.remote.nativeQueue` is true (the renderer refuses `queue.mode: "native"`); mention it as a later option when it applies.
 4. **Loops** (multi-select): AI risk classifier (second opinion, can only raise a tier), nightly AI sweep (needs security paths), review eval (replays past bugs weekly), weekly metrics.
 
 Then, in follow-up questions or plain conversation:
 - **People**: trusted authors (proposal: collaborators with write access), code owners (two or more, so nobody approves their own PR), on-call rotation. Logins only, no emails.
-- **Paths**: high (always need a human), security (security checklist + nightly sweep), low-only (docs; zero-person merges allowed). Never put `CLAUDE.md` or process files in low-only; the renderer adds `.github/**`, `CLAUDE.md`, `.dev-process/**` to high by itself.
+- **Paths**: high (always need a human), security (security checklist + nightly sweep), low-only (docs; zero-person merges allowed). Never put `CLAUDE.md` or process files in low-only; the renderer adds the process files to high by itself (`.github/**` or `.gitlab-ci.yml` + `.gitlab/**`, `CLAUDE.md` at any depth, `.claude/**`, `.mcp.json`, `.dev-process/**`).
 - **Project-specific review lines** (optional, 0–5 each): "what breaking looks like here" (`failureModes`) and security checklist lines (`securityChecklist`). Offer to draft them from the code you've seen; the user confirms.
-- **CI**: the proposed setup / checks / tests steps; tests on hosted or self-hosted runners (labels); an optional heavy release gate (steps, runner) that only runs on release PRs (label `release` or a version bump).
+- **CI**: the proposed setup / checks / tests steps; tests on hosted or self-hosted runners (labels); an optional heavy release gate (steps, runner) that only runs on release PRs (label `release` or a version bump). GitLab: every step is a shell command (`run`), the jobs' Docker image is `ci.image` (default `node:24`), self-hosted runners are picked by their tags (`selfHostedLabels`).
+- **GitLab only**: confirm `gitlab.url` (the instance address the API lives under; the proposal guesses `https://` + the host) and `gitlab.tier` (`facts.remote.tier`, or ask). Explain the one thing that differs most from GitHub: on Free only the process bot can merge, so after setup people must be Developers, not Maintainers.
 
 Write the confirmed answers to `<repo>/.dev-process/answers.json` (pretty JSON).
 
@@ -76,12 +82,21 @@ Exit 4 or doctor errors: explain each finding (they are printed in the project l
 
 Commit in three topic commits, messages in the project language:
 1. Conventions and review instructions: `CLAUDE.md`, the PR template, the AI review instruction files, `CODEOWNERS`, `.dev-process/config.json`, `.dev-process/answers.json`, `.dev-process/VERSION`, `.dev-process/render-lock.json`, `.dev-process/engine/`.
-2. CI, risk gate, merge queue and AI review: `.github/workflows/ci.yml`, `risk-gate.yml`, `risk-gate-events.yml`, `merge-queue.yml`, and `claude-review.yml` when Claude reviews.
+2. CI, risk gate, merge queue and AI review: GitHub — `.github/workflows/ci.yml`, `risk-gate.yml`, `risk-gate-events.yml`, `merge-queue.yml`, and `claude-review.yml` when Claude reviews; GitLab — `.gitlab-ci.yml` and `.gitlab/dev-process.gitlab-ci.yml`.
 3. Loops and docs: the remaining workflows, `docs/dev-process/`, `docs/incident-review-template.md`, the review-eval files.
 
-Ask before `git push -u origin dev-process/init` and before `gh pr create`. The PR body (project language) says what was installed, links `docs/dev-process/review-setup.md`, and lists the admin steps below. This first PR is not judged by the gate (the gate workflows run from the default branch, where they don't exist yet) — say so; it needs a normal human review.
+Ask before `git push -u origin dev-process/init` and before opening the pull request (GitHub: `gh pr create`; GitLab: the push options `-o merge_request.create -o merge_request.target=<default branch>`, or `glab mr create`). The PR body (project language) says what was installed, links `docs/dev-process/review-setup.md`, and lists the admin steps below. This first PR is not judged by the gate (the gate workflows run from the default branch, where they don't exist yet) — say so; it needs a normal human review.
 
 ## 7. After it merges: enable it, in order
+
+GitLab: follow `docs/dev-process/review-setup.md` instead of the GitHub steps below —
+1. With the user's yes, the user runs (with `!`) `GITLAB_TOKEN=<token> ANTHROPIC_API_KEY=<key> node <repo>/.dev-process/engine/cli/apply-protection.mjs --repo <group/name> --dry-run`; walk through the output, then the same without `--dry-run`.
+2. If it warns that the webhook was refused: a GitLab admin allows webhooks to the local network (the doc names the setting), then the setup runs again. Until then the 10-minute schedule keeps things moving.
+3. People with Maintainer or Owner become Developers (doctor names them); the bot stays the only Maintainer.
+4. A test merge request: the gate's note, Claude's threads and summary, the queue merging it after the label.
+5. `GITLAB_TOKEN=<token> node <repo>/.dev-process/engine/cli/doctor.mjs --remote --repo <group/name>` — no errors.
+
+GitHub:
 
 Walk the user through `docs/dev-process/review-setup.md`:
 1. Reviewer setup (Copilot policies and budget, or the `ANTHROPIC_API_KEY` secret and the Claude GitHub App).

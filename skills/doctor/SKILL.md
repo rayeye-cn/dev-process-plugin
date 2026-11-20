@@ -10,7 +10,7 @@ argument-hint: "[repository path, default: current directory]"
 `<repo>` is the repository (the argument, or the current directory). Talk to the user in their language.
 
 1. Make sure it is installed: `<repo>/.dev-process/config.json` exists. If not, offer `/dev-process:init`.
-2. Run `node <repo>/.dev-process/engine/cli/doctor.mjs --remote` (needs `gh auth status`; without GitHub access run it without `--remote` and say the remote half was skipped). Findings print in the project language; exit code 1 means at least one error.
+2. Run `node <repo>/.dev-process/engine/cli/doctor.mjs --remote` (GitHub: needs `gh auth status`; GitLab: the user runs it with `!` and `GITLAB_TOKEN=<their token>` in front, adding `--repo <group/name>` — never ask for the token in the conversation; without access run it without `--remote` and say the remote half was skipped). Findings print in the project language; exit code 1 means at least one error.
 3. For each finding, explain what it means and the fix:
    - consistency findings: edit `<repo>/.dev-process/answers.json` (high/security/low paths, people) and re-render with `/dev-process:upgrade` — never hand-edit CODEOWNERS or the instruction files' front matter, they mirror the configuration;
    - a missing or extra workflow: re-render;
@@ -18,5 +18,6 @@ argument-hint: "[repository path, default: current directory]"
    - no ruleset yet: expected until a test pull request shows every required check; then `apply-protection` (the user's call, admin rights);
    - ruleset drift: re-run `apply-protection` after the user agrees;
    - a missing secret: the repository admin adds it in Settings → Secrets and variables → Actions.
+   - GitLab setup items (protection, settings, the bot token variable, trigger, schedules, webhook): re-run `apply-protection` with the user's yes (its `--dry-run` shows the same list); a refused webhook needs a GitLab admin to allow webhooks to the local network; human Maintainers must become Developers (on Free they can merge past the gate); a bot token close to expiry must be rotated and `DEV_PROCESS_TOKEN` updated;
    - the Claude GitHub App missing (Claude reviewer): an organization admin installs it from github.com/apps/claude, selecting at least this repository; doctor cannot see which repositories a "selected" installation covers, so if review jobs still fail with a token error, check that list.
 4. If the user reports a red gate on a pull request, read the gate's sticky comment on that PR ("still missing" list) and explain each item. Never post `/signoff` or waiver commands, never approve, never hand-post statuses to turn it green.
