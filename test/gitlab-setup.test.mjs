@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { applyGitlab } from "../engine/cli/apply-protection.mjs";
+import { gitlabFindings } from "../engine/cli/doctor.mjs";
+import { tr } from "../engine/core/messages/index.mjs";
 import { gitlabPlan } from "../engine/core/protection.mjs";
 import { createGitlab } from "../engine/forge/gitlab.mjs";
 import { policy } from "./helpers.mjs";
@@ -12,7 +14,7 @@ const BOT = "project_9_bot_ab12";
 const pol = { ...policy, forge: "gitlab", reviewer: "claude", gitlab: { url: "https://gl.example", tier: "free", schedules: ["poll", "metrics"] } };
 
 /** A tiny GitLab: a project, its protected branches, variables, triggers, schedules, hooks and members; two tokens. */
-function world({ blockHooks = false, members = [] } = {}) {
+function world({ blockHooks = false, members = [], branches = [], tokens = [] } = {}) {
   const st = { project: { id: 9, default_branch: "main", only_allow_merge_if_pipeline_succeeds: false }, protected: null, variables: [], triggers: [], schedules: [], hooks: [], writes: [] };
   const who = (init) => (init.headers["private-token"] === "glpat-bot-token-123456" ? BOT : "owner");
   const routes = [
@@ -34,6 +36,8 @@ function world({ blockHooks = false, members = [] } = {}) {
     ["POST", new RegExp(`^${P}/hooks$`), (b) => (blockHooks ? { status: 422, message: "Invalid url given" } : (st.hooks.push({ id: 1, ...b }), st.hooks.at(-1)))],
     ["POST", new RegExp(`^${P}/labels$`), () => ({ id: 1 })],
     ["GET", new RegExp(`^${P}/members/all`), () => members],
+    ["GET", new RegExp(`^${P}/protected_branches\\?`), () => branches],
+    ["GET", new RegExp(`^${P}/access_tokens`), () => tokens],
   ];
   const fetch = async (url, init = {}) => {
     const u = new URL(url);
@@ -105,3 +109,25 @@ describe("GitLab setup", () => {
     assert.deepEqual(r.actions.find((a) => a.code === "gitlab.humanMaintainers").params.logins, ["alice"]);
   });
 });
+
+describe("doctor --remote on GitLab", () => {
+  const doctor = async (w, now = new Date("2026-11-20T00:00:00Z")) => {
+    const forge = await createGitlab({ repo: "grp/app", url: "https://gl.example", env: ENV, fetch: w.fetch }).ready();
+    return gitlabFindings(forge, pol, { now, fetch: w.fetch });
+  };
+  it("a fresh project: the missing protection, settings and bot token are errors; nothing is written", async () => {
+    const w = world();
+    const found = await doctor(w);
+    assert.deepEqual(w.st.writes, []);
+    const errors = found.filter((x) => x.level === "error").map((x) => x.params.code);
+    for (const c of ["gitlab.branch", "gitlab.settings", "gitlab.botToken"]) assert.ok(errors.includes(c), c);
+    for (const x of found) for (const lang of ["zh", "en"]) assert.equal(typeof tr(lang, x), "string");
+  });
+  it("after the setup: clean, except what only doctor sees — a wildcard protected branch, a token about to expire", async () => {
+    const w = world({ branches: [{ name: "main" }, { name: "release/*" }], tokens: [{ name: "dev-process-bot", active: true, expires_at: "2026-11-25" }] });
+    await applyGitlab(await createGitlab({ repo: "grp/app", url: "https://gl.example", env: ENV, fetch: w.fetch }).ready(), pol, { env: ENV, fetch: w.fetch, log: () => {} });
+    const found = await doctor(w);
+    assert.deepEqual(found.map((x) => [x.level, x.code, x.params.code ?? x.params.days]), [["error", "doctor.gitlab.setup", "gitlab.wildcardBranch"], ["error", "doctor.gitlab.tokenExpiry", 5]]);
+  });
+});
+

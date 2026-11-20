@@ -50,13 +50,16 @@ export function localFindings(root, policy) {
   const out = [
     ...checkConsistency({
       policy,
-      codeowners: read(".github/CODEOWNERS"),
+      codeowners: read(policy.forge === "gitlab" ? ".gitlab/CODEOWNERS" : ".github/CODEOWNERS"),
       applyTo: policy.reviewer === "copilot" && policy.securityPaths.length ? read(policy.paths.security) : null,
       claudeMd: read("CLAUDE.md"),
       tracked,
     }),
   ];
   if (!read(".dev-process/VERSION")) out.push(f("warn", "doctor.noVersion"));
+  if (policy.forge === "gitlab") {
+    for (const file of [".gitlab-ci.yml", ".gitlab/dev-process.gitlab-ci.yml"]) if (!existsSync(join(root, file))) out.push(f("error", "doctor.workflowMissing", { file }));
+  }
   if (policy.forge === "github") {
     for (const w of expectedWorkflows(policy)) if (!existsSync(join(root, ".github/workflows", w))) out.push(f("error", "doctor.workflowMissing", { file: `.github/workflows/${w}` }));
     if (policy.queue.mode !== "self" && existsSync(join(root, ".github/workflows/merge-queue.yml"))) out.push(f("warn", "doctor.workflowExtra", { file: ".github/workflows/merge-queue.yml" }));
@@ -77,8 +80,46 @@ export function localFindings(root, policy) {
   return out;
 }
 
-/** GitHub: ruleset and secrets. `forge` from createForge. */
+/** Setup actions (apply-protection's dry run) that are findings: anything still to create or update, every warning. */
+const GITLAB_LEVEL = { "gitlab.branch": "error", "gitlab.settings": "error", "gitlab.botToken": "error", "gitlab.botTokenFlags": "error", "gitlab.trigger": "warn", "gitlab.schedule": "error", "gitlab.webhook": "warn", "gitlab.approvals": "warn", "gitlab.apiKey": "warn" };
+const GITLAB_ERRORS = new Set(["gitlab.humanMaintainers", "gitlab.mrPipelinesProtected", "gitlab.jobTokenPush", "gitlab.apiKeyMissing", "gitlab.wildcardBranch"]);
+
+/**
+ * GitLab: the setup's dry run (so doctor and apply-protection cannot disagree), plus what only doctor looks at:
+ * wildcard protected branches (17.11 may hand MR pipelines protected variables through them) and the bot token's
+ * expiry. On Free, human Maintainers, MR pipelines with protected variables and job-token pushes are errors: each one is
+ * a way past the gate.
+ */
+export async function gitlabFindings(forge, policy, { now = new Date(), fetch: fetchImpl = globalThis.fetch } = {}) {
+  const { applyGitlab } = await import("./apply-protection.mjs");
+  const out = [];
+  let actions;
+  try {
+    ({ actions } = await applyGitlab(forge, policy, { dryRun: true, log: () => {}, fetch: fetchImpl, today: now }));
+  } catch (e) {
+    return [f("error", "doctor.remoteUnreachable", { repo: forge.repo, message: String(e.message).slice(0, 120) })];
+  }
+  for (const a of actions) {
+    if (a.action === "ok") continue;
+    const level = GITLAB_ERRORS.has(a.code) ? "error" : a.action === "warn" ? "warn" : (GITLAB_LEVEL[a.code] ?? "warn");
+    out.push(f(level, "doctor.gitlab.setup", { code: a.code, action: a.action, params: a.params }));
+  }
+  const P = `/projects/${encodeURIComponent(forge.repo)}`;
+  const branches = (await forge.rest.get(`${P}/protected_branches?per_page=100`).catch(() => [])) ?? [];
+  const wild = branches.map((b) => b.name).filter((n) => /[*]/.test(n));
+  if (wild.length) out.push(f("error", "doctor.gitlab.setup", { code: "gitlab.wildcardBranch", action: "warn", params: { names: wild } }));
+  const tokens = (await forge.rest.get(`${P}/access_tokens?per_page=100`).catch(() => [])) ?? [];
+  const mine = tokens.filter((x) => x.active !== false && !x.revoked && String(x.name ?? "").startsWith("dev-process"));
+  for (const x of mine) {
+    const days = x.expires_at ? Math.floor((Date.parse(`${x.expires_at}T00:00:00Z`) - now.getTime()) / 86_400_000) : null;
+    if (days !== null && days <= 30) out.push(f(days <= 7 ? "error" : "warn", "doctor.gitlab.tokenExpiry", { name: x.name, days }));
+  }
+  return out;
+}
+
+/** GitHub: ruleset and secrets; GitLab: gitlabFindings. `forge` from createForge. */
 export async function remoteFindings(forge, policy) {
+  if (forge.id === "gitlab") return gitlabFindings(forge, policy);
   const out = [];
   const base = `/repos/${forge.owner}/${forge.name}`;
   let rulesets;
