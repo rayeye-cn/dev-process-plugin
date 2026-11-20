@@ -1,0 +1,38 @@
+[
+  {
+    "id": "token-logged-on-retry",
+    "kind": "bug",
+    "introducingPr": 41,
+    "baseSha": "1111111111111111111111111111111111111111",
+    "headSha": "2222222222222222222222222222222222222222",
+    "file": "src/auth/session.ts",
+    "lines": [30, 34],
+    "fixPr": 45,
+    "description": "The retry path logs the request headers, including the bearer token.",
+    "confidence": "high"
+  },
+  {
+    "id": "feed-allows-http",
+    "kind": "bug",
+    "introducingPr": 52,
+    "baseSha": "3333333333333333333333333333333333333333",
+    "headSha": "4444444444444444444444444444444444444444",
+    "file": "src/update/feed.ts",
+    "lines": [12, 12],
+    "fixPr": null,
+    "fixCommit": "5555555555555555555555555555555555555555",
+    "description": "The feed URL check accepts http:// as well as https://.",
+    "confidence": "medium"
+  },
+  {
+    "id": "clean-readme-typo",
+    "kind": "clean",
+    "introducingPr": 60,
+    "baseSha": "6666666666666666666666666666666666666666",
+    "headSha": "7777777777777777777777777777777777777777",
+    "file": null,
+    "lines": null,
+    "fixPr": null,
+    "description": "A small, correct change nobody touched again."
+  }
+]
