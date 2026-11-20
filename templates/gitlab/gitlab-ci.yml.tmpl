@@ -1,0 +1,108 @@
+# CI of {{ project.name }} and the entry of its review process (dev-process; see docs/dev-process/review-setup.md).
+# Rendered by the dev-process plugin from .dev-process/answers.json: change the answers and re-render, don't edit by hand.
+#
+# Pipelines:
+# - merge request pipelines: the CI jobs below, with the MR's own code and no protected variables;
+# - the merge queue's candidates (branch `{{ policy.names.queueContext }}/pr-N`, started by the process bot with
+#   DEV_PROCESS_TASK=ci): the same jobs on "latest {{ defaultBranch }} + the MR";
+# - pipelines of {{ defaultBranch }}: the CI jobs after a merge, and the process bot's jobs (.gitlab/dev-process.gitlab-ci.yml).
+
+workflow:
+  rules:
+    # A job token can start pipelines (and the queue's candidate pipelines give developer code the bot's job token):
+    # nothing runs in those.
+    - if: $CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "parent_pipeline"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # The queue starts its candidates' CI itself (with variables); their push pipelines would only run it twice.
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^{{ policy.names.queueContext }}\//
+      when: never
+    # A branch with an open MR runs the MR pipeline instead.
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH || $CI_COMMIT_TAG
+
+stages:
+  - test
+  - dev-process
+
+default:
+  image: {{ ci.image }}
+
+include:
+  - local: .gitlab/dev-process.gitlab-ci.yml
+
+# The CI jobs: in MR pipelines, the queue's candidates and pushes; never in the process bot's own pipelines. Their names
+# are the required checks the merge queue waits for ({{ ci.requiredChecks }}).
+.ci:
+  stage: test
+  rules:
+    - if: $DEV_PROCESS_TASK && $DEV_PROCESS_TASK != "ci"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "trigger" || $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+{{#if ci.hasChecks}}
+
+checks:
+  extends: .ci
+  timeout: 20m
+  script:
+{{#if ci.setupScript}}
+{{ ci.setupScript }}
+{{/if}}
+{{ ci.checksScript }}
+{{/if}}
+{{#if ci.hasTests}}
+
+tests:
+  extends: .ci
+  timeout: 60m
+{{#if ci.tagsYaml}}
+{{ ci.tagsYaml }}
+{{/if}}
+  script:
+{{#if ci.setupScript}}
+{{ ci.setupScript }}
+{{/if}}
+{{ ci.testsScript }}
+{{/if}}
+{{#if ci.releaseGate}}
+
+# Is this a release (a version field changed, or the `{{ release.label }}` label)? The release gate runs only then.
+detect-release:
+  extends: .ci
+  image: node:{{ ci.node }}
+  timeout: 5m
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ]; then
+        export EVENT=pull_request PR_BASE_SHA="$CI_MERGE_REQUEST_DIFF_BASE_SHA" PR_LABELS_CSV="$CI_MERGE_REQUEST_LABELS"
+      elif [ "$DEV_PROCESS_TASK" = "ci" ]; then
+        export EVENT=workflow_dispatch QUEUE_PR="$DEV_PROCESS_PR" BASE_INPUT="$DEV_PROCESS_BASE" PR_LABELS_CSV="$DEV_PROCESS_LABELS"
+      else
+        export EVENT=push
+      fi
+      export DEFAULT_BRANCH="$CI_DEFAULT_BRANCH" GITHUB_OUTPUT="$CI_PROJECT_DIR/release.out"
+      node {{ engine }}/cli/detect-release.mjs
+      if grep -q '^release=true$' release.out; then echo "RELEASE=true" > release.env; else echo "RELEASE=false" > release.env; fi
+  artifacts:
+    reports:
+      dotenv: release.env
+
+{{ ci.releaseGate.name }}:
+  extends: .ci
+  needs: [detect-release{{#if ci.hasTests}}, tests{{/if}}]
+  timeout: {{ ci.releaseGate.timeoutMin }}m
+{{#if ci.releaseGate.tagsYaml}}
+{{ ci.releaseGate.tagsYaml }}
+{{/if}}
+  script:
+    - if [ "$RELEASE" != "true" ]; then echo "not a release; the release gate passes without running"; exit 0; fi
+{{#if ci.setupScript}}
+{{ ci.setupScript }}
+{{/if}}
+{{ ci.releaseGate.script }}
+{{/if}}

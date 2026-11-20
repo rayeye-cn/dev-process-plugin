@@ -1,0 +1,158 @@
+# The review process's bot (docs/dev-process/review-setup.md). Rendered by the dev-process plugin; don't edit by hand.
+#
+# Every job here runs only in pipelines of {{ defaultBranch }}, with {{ defaultBranch }}'s configuration and engine: a merge
+# request cannot change how it is judged. DEV_PROCESS_TOKEN (the bot's project access token) is a protected variable
+# scoped to environment `dev-process-bot`: only the jobs that declare that environment see it. The Claude review job
+# does not: it reads the MR head with the API key only.
+#
+#   webhook (MR / comment / pipeline events) → trigger ─┐
+#   schedule DEV_PROCESS_TASK=poll ─────────────────────┼→ dev-process: re-judge, start review / queue pipelines
+#   the queue: DEV_PROCESS_TASK=risk-gate ──────────────┘
+#   DEV_PROCESS_TASK={{ policy.names.aiReviewWorkflow }} → ai-review (no token) → post-review (token)
+#   DEV_PROCESS_TASK={{ policy.names.queueWorkflow }} → merge-queue
+
+.dev-process-bot:
+  stage: dev-process
+  image: node:{{ ci.node }}
+  interruptible: false
+
+dev-process:
+  extends: .dev-process-bot
+  environment:
+    name: dev-process-bot
+    action: access
+  rules:
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "trigger"
+    - if: $CI_PIPELINE_SOURCE =~ /^(api|web|schedule)$/ && $DEV_PROCESS_TASK =~ /^({{ policy.names.gateWorkflow }}|poll)$/
+  timeout: 15m
+  script:
+    - node {{ engine }}/cli/gitlab-run.mjs
+{{#if isClaude}}
+
+# The review run: the MR head in its own worktree, Claude Code read-only (--bare: no hooks, no CLAUDE.md discovery;
+# --restricted: no settings files, file tools confined to the worktree; --strict-mcp-config: no project MCP servers),
+# with a cleaned environment. Only its answer (JSON) goes on to post-review.
+ai-review:
+  extends: .dev-process-bot
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "api" && $DEV_PROCESS_TASK == "{{ policy.names.aiReviewWorkflow }}"
+  timeout: 30m
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - node {{ engine }}/cli/gitlab-review.mjs prepare --out "$CI_PROJECT_DIR/.dev-process-review"
+    - |
+      R="$CI_PROJECT_DIR/.dev-process-review"
+      if [ "$(cat "$R/state")" = "ready" ]; then
+        npm install -g --no-audit --no-fund @anthropic-ai/claude-code
+        cd "$R/mr"
+        if timeout 20m env -i HOME="$HOME" PATH="$PATH" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+            claude --bare --restricted --strict-mcp-config -p --tools "Read,Grep,Glob" --permission-mode dontAsk \
+            --output-format json --json-schema "$(cat "$R/review-schema.json")" --max-turns {{ policy.aiReview.maxTurns }} \
+            ${CLAUDE_REVIEW_MODEL:+--model "$CLAUDE_REVIEW_MODEL"} < "$R/review-prompt.txt" > "$R/review.json"; then
+          echo success > "$R/outcome"
+        else
+          echo failure > "$R/outcome"
+        fi
+        if [ -f "$R/classify-prompt.txt" ]; then
+          timeout 5m env -i HOME="$HOME" PATH="$PATH" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+            claude --bare --restricted --strict-mcp-config -p --tools "" --permission-mode dontAsk --output-format json \
+            --max-turns 3 < "$R/classify-prompt.txt" > "$R/classify.json" || true
+        fi
+      fi
+  artifacts:
+    when: always
+    expire_in: 1 day
+    paths:
+      - .dev-process-review/state
+      - .dev-process-review/meta.json
+      - .dev-process-review/outcome
+      - .dev-process-review/review.json
+      - .dev-process-review/classify.json
+
+post-review:
+  extends: .dev-process-bot
+  environment:
+    name: dev-process-bot
+    action: access
+  needs:
+    - job: ai-review
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "api" && $DEV_PROCESS_TASK == "{{ policy.names.aiReviewWorkflow }}"
+      when: always
+  timeout: 10m
+  script:
+    - node {{ engine }}/cli/post-review.mjs --dir "$CI_PROJECT_DIR/.dev-process-review"
+{{/if}}
+{{#if queue.self}}
+
+# One queue run at a time (it may wait for a candidate's CI for up to {{ policy.queue.ciTimeoutMin }} minutes).
+merge-queue:
+  extends: .dev-process-bot
+  environment:
+    name: dev-process-bot
+    action: access
+  resource_group: dev-process-merge-queue
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(api|web|schedule)$/ && $DEV_PROCESS_TASK == "{{ policy.names.queueWorkflow }}"
+  timeout: {{ queue.jobTimeoutMin }}m
+  script:
+    - node {{ engine }}/cli/merge-queue.mjs
+{{/if}}
+{{#if loops.sweep}}
+
+# Nightly sweep (schedule with DEV_PROCESS_TASK=sweep): Claude reads tonight's security area read-only, without the token;
+# the next job parses its findings against the same area and files the issues with the token.
+nightly-review:
+  extends: .dev-process-bot
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(schedule|web)$/ && $DEV_PROCESS_TASK == "sweep"
+  timeout: 40m
+  script:
+    - GITHUB_OUTPUT="$CI_PROJECT_DIR/sweep.out" node {{ engine }}/cli/nightly-sweep.mjs prompt --cli claude ${DEV_PROCESS_AREA:+--area "$DEV_PROCESS_AREA"} > "$CI_PROJECT_DIR/sweep-prompt.txt"
+    - sed -n 's/^area=/SWEEP_AREA=/p' "$CI_PROJECT_DIR/sweep.out" > "$CI_PROJECT_DIR/sweep.env"
+    - npm install -g --no-audit --no-fund @anthropic-ai/claude-code
+    - |
+      timeout 30m env -i HOME="$HOME" PATH="$PATH" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+        claude --bare --restricted --strict-mcp-config -p --tools "Read,Grep,Glob" --permission-mode dontAsk \
+        --output-format json --max-turns 40 < "$CI_PROJECT_DIR/sweep-prompt.txt" > "$CI_PROJECT_DIR/sweep-out.txt"
+  artifacts:
+    when: always
+    expire_in: 1 day
+    reports:
+      dotenv: sweep.env
+    paths:
+      - sweep-out.txt
+
+nightly-review-file:
+  extends: .dev-process-bot
+  environment:
+    name: dev-process-bot
+    action: access
+  needs:
+    - job: nightly-review
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(schedule|web)$/ && $DEV_PROCESS_TASK == "sweep"
+  timeout: 10m
+  script:
+    - node {{ engine }}/cli/nightly-sweep.mjs parse --area "$SWEEP_AREA" < "$CI_PROJECT_DIR/sweep-out.txt" > "$CI_PROJECT_DIR/findings.json"
+    - node {{ engine }}/cli/nightly-sweep.mjs file-issues --area "$SWEEP_AREA" "$CI_PROJECT_DIR/findings.json"
+{{/if}}
+{{#if loops.metrics}}
+
+# Weekly metrics (schedule with DEV_PROCESS_TASK=metrics): appended to the issue labelled `{{ policy.names.metricsLabel }}`.
+review-metrics:
+  extends: .dev-process-bot
+  environment:
+    name: dev-process-bot
+    action: access
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(schedule|web)$/ && $DEV_PROCESS_TASK == "metrics"
+  timeout: 15m
+  script:
+    - node {{ engine }}/cli/metrics.mjs --days 7
+{{/if}}

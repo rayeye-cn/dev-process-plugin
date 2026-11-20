@@ -64,29 +64,34 @@ export function manifest(ctx, answers) {
   const L = ctx.lang;
   const tmpl = (p) => join(TEMPLATES, p.replace("{lang}", L));
   const evalDir = posix.dirname(ctx.policy.paths.evalCases);
+  const gl = ctx.forge === "gitlab";
+  const github = (c) => c.forge !== "gitlab";
+  const gitlab = (c) => c.forge === "gitlab";
   const outs = [
     { out: ".dev-process/config.json", kind: "text", text: () => json(ctx.policy) },
     { out: ".dev-process/answers.json", kind: "input", text: () => json(answers) },
     { out: ".dev-process/VERSION", kind: "text", text: () => `${pluginVersion()}\n` },
     { out: "CLAUDE.md", kind: "section", tmpl: tmpl("common/{lang}/CLAUDE.section.md.tmpl") },
-    { out: ".github/pull_request_template.md", kind: "file", tmpl: tmpl("common/{lang}/pull_request_template.md.tmpl") },
+    { out: gl ? ".gitlab/merge_request_templates/Default.md" : ".github/pull_request_template.md", kind: "file", tmpl: tmpl("common/{lang}/pull_request_template.md.tmpl") },
     { out: ctx.instructionsPath, kind: "file", tmpl: tmpl("common/{lang}/ai-review-instructions.md.tmpl") },
     // Copilot reads `applyTo` from this file's front matter: with no security paths there is nothing to apply it to.
     { out: ctx.securityPath, kind: "file", tmpl: tmpl("common/{lang}/ai-review-security.md.tmpl"), when: (c) => !c.isCopilot || c.policy.securityPaths.length > 0 },
-    { out: ".github/CODEOWNERS", kind: "file", tmpl: tmpl("common/{lang}/CODEOWNERS.tmpl") },
-    { out: "docs/dev-process/review-setup.md", kind: "file", tmpl: tmpl("common/{lang}/review-setup.md.tmpl") },
+    { out: gl ? ".gitlab/CODEOWNERS" : ".github/CODEOWNERS", kind: "file", tmpl: tmpl("common/{lang}/CODEOWNERS.tmpl") },
+    { out: "docs/dev-process/review-setup.md", kind: "file", tmpl: tmpl(gl ? "gitlab/{lang}/review-setup.md.tmpl" : "common/{lang}/review-setup.md.tmpl") },
     { out: "docs/dev-process/on-call.md", kind: "file", tmpl: tmpl("common/{lang}/on-call.md.tmpl") },
     { out: "docs/incident-review-template.md", kind: "file", tmpl: tmpl("common/{lang}/incident-review-template.md.tmpl") },
     { out: `${evalDir}/README.md`, kind: "file", tmpl: tmpl("common/{lang}/review-evals-README.md.tmpl"), when: (c) => c.loops.eval },
     { out: ctx.policy.paths.evalCases, kind: "seed", text: () => "[]\n", when: (c) => c.loops.eval },
-    { out: ".github/workflows/ci.yml", kind: "file", tmpl: tmpl("github/workflows/ci.yml.tmpl") },
-    { out: ".github/workflows/risk-gate.yml", kind: "file", tmpl: tmpl("github/workflows/risk-gate.yml.tmpl") },
-    { out: ".github/workflows/risk-gate-events.yml", kind: "file", tmpl: tmpl("github/workflows/risk-gate-events.yml.tmpl") },
-    { out: ".github/workflows/merge-queue.yml", kind: "file", tmpl: tmpl("github/workflows/merge-queue.yml.tmpl"), when: (c) => c.queue.self },
-    { out: `.github/workflows/${ctx.policy.names.aiReviewWorkflow}`, kind: "file", tmpl: tmpl("github/workflows/claude-review.yml.tmpl"), when: (c) => c.isClaude },
-    { out: ".github/workflows/nightly-review.yml", kind: "file", tmpl: tmpl("github/workflows/nightly-review.yml.tmpl"), when: (c) => c.loops.sweep },
-    { out: ".github/workflows/review-eval.yml", kind: "file", tmpl: tmpl("github/workflows/review-eval.yml.tmpl"), when: (c) => c.loops.eval },
-    { out: ".github/workflows/review-metrics.yml", kind: "file", tmpl: tmpl("github/workflows/review-metrics.yml.tmpl"), when: (c) => c.loops.metrics },
+    { out: ".github/workflows/ci.yml", kind: "file", tmpl: tmpl("github/workflows/ci.yml.tmpl"), when: github },
+    { out: ".github/workflows/risk-gate.yml", kind: "file", tmpl: tmpl("github/workflows/risk-gate.yml.tmpl"), when: github },
+    { out: ".github/workflows/risk-gate-events.yml", kind: "file", tmpl: tmpl("github/workflows/risk-gate-events.yml.tmpl"), when: github },
+    { out: ".github/workflows/merge-queue.yml", kind: "file", tmpl: tmpl("github/workflows/merge-queue.yml.tmpl"), when: (c) => github(c) && c.queue.self },
+    { out: `.github/workflows/${ctx.policy.names.aiReviewWorkflow}`, kind: "file", tmpl: tmpl("github/workflows/claude-review.yml.tmpl"), when: (c) => github(c) && c.isClaude },
+    { out: ".github/workflows/nightly-review.yml", kind: "file", tmpl: tmpl("github/workflows/nightly-review.yml.tmpl"), when: (c) => github(c) && c.loops.sweep },
+    { out: ".github/workflows/review-eval.yml", kind: "file", tmpl: tmpl("github/workflows/review-eval.yml.tmpl"), when: (c) => github(c) && c.loops.eval },
+    { out: ".github/workflows/review-metrics.yml", kind: "file", tmpl: tmpl("github/workflows/review-metrics.yml.tmpl"), when: (c) => github(c) && c.loops.metrics },
+    { out: ".gitlab-ci.yml", kind: "file", tmpl: tmpl("gitlab/gitlab-ci.yml.tmpl"), when: gitlab },
+    { out: ".gitlab/dev-process.gitlab-ci.yml", kind: "file", tmpl: tmpl("gitlab/dev-process.gitlab-ci.yml.tmpl"), when: gitlab },
   ];
   for (const f of engineFiles()) {
     const rel = relative(ENGINE, f).split(sep).join("/");

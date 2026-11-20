@@ -25,6 +25,8 @@
  *     (shell command lines with "$PROMPT_FILE" and "$OUT_FILE" placeholders, read from those env vars)
  *   release.label, release.versionFiles, stagedRollout
  *   s                               short UI strings for workflow job/step names, in the project language
+ *   GitLab only: gitlab.url / tier / premium / ultimate, ci.image, ci.tagsYaml (runner tags block or ""),
+ *     ci.setupScript / checksScript / testsScript, ci.releaseGate.script ( `script:` list items, indented 4)
  */
 import { globToCodeowners, processPaths } from "../engine/core/consistency.mjs";
 import { withDefaults } from "../engine/core/policy.mjs";
@@ -76,6 +78,27 @@ export function stepsYaml(list, indent = 6) {
 
 const runsOn = (runner, labels) => (runner === "self-hosted" ? JSON.stringify(labels) : "ubuntu-latest");
 
+/** GitLab `script:` items for steps (`run` only): `- cmd`, multi-line commands as literal blocks, names as comments. */
+export function scriptYaml(list, indent = 4) {
+  const pad = " ".repeat(indent);
+  const lines = [];
+  for (const st of list) {
+    if (st.name) lines.push(`${pad}# ${String(st.name).replace(/\n/g, " ")}`);
+    const run = String(st.run ?? "");
+    if (run.includes("\n")) {
+      lines.push(`${pad}- |`);
+      for (const l of run.replace(/\n$/, "").split("\n")) lines.push(`${pad}  ${l}`);
+    } else lines.push(`${pad}- ${yamlScalar(run)}`);
+  }
+  return lines.join("\n");
+}
+
+/** GitLab runner tags for a job (`tags:` block at indent 2), or "" for shared runners. */
+const tagsYaml = (runner, labels) => (runner === "self-hosted" && labels.length ? `  tags:\n${labels.map((l) => `    - ${yamlScalar(l)}`).join("\n")}` : "");
+
+/** GitLab: the process's tasks (DEV_PROCESS_TASK values) in place of GitHub workflow file names. */
+export const GITLAB_TASKS = Object.freeze({ ciWorkflow: "ci", gateWorkflow: "risk-gate", queueWorkflow: "merge-queue", aiReviewWorkflow: "ai-review" });
+
 /** The AI CLI used for the classifier, the nightly sweep and the review eval (the reviewer's family). */
 export function aiCliFor(reviewer) {
   if (reviewer === "copilot") {
@@ -122,6 +145,7 @@ export function policyFrom(a) {
     paths: { ...instructionPaths(a.reviewer) },
     classifier: { enabled: a.classifier },
     release: a.release,
+    ...(a.forge === "gitlab" ? { names: { ...GITLAB_TASKS }, gitlab: { url: a.gitlab.url, tier: a.gitlab.tier } } : {}),
   });
 }
 
@@ -159,9 +183,9 @@ export function buildContext(a) {
     skipPaths: a.paths.lowOnly,
     ci: {
       node: NODE_VERSION,
-      setupYaml: stepsYaml(ci.setup),
-      checksYaml: stepsYaml(ci.checks),
-      testsYaml: stepsYaml(ci.tests),
+      setupYaml: a.forge === "gitlab" ? "" : stepsYaml(ci.setup),
+      checksYaml: a.forge === "gitlab" ? "" : stepsYaml(ci.checks),
+      testsYaml: a.forge === "gitlab" ? "" : stepsYaml(ci.tests),
       hasSetup: ci.setup.length > 0,
       hasChecks: ci.checks.length > 0,
       hasTests: ci.tests.length > 0,
@@ -170,12 +194,30 @@ export function buildContext(a) {
       selfHostedLabelsJson: JSON.stringify(ci.selfHostedLabels),
       requiredChecks: policy.checks.required,
       releaseGate: rg
-        ? { name: rg.name, timeoutMin: rg.timeoutMin, runsOn: runsOn(rg.runner, ci.selfHostedLabels), selfHosted: rg.runner === "self-hosted", stepsYaml: stepsYaml(rg.steps) }
+        ? {
+            name: rg.name,
+            timeoutMin: rg.timeoutMin,
+            runsOn: runsOn(rg.runner, ci.selfHostedLabels),
+            selfHosted: rg.runner === "self-hosted",
+            stepsYaml: a.forge === "gitlab" ? "" : stepsYaml(rg.steps),
+            ...(a.forge === "gitlab" ? { script: scriptYaml(rg.steps), tagsYaml: tagsYaml(rg.runner, ci.selfHostedLabels) } : {}),
+          }
         : null,
+      ...(a.forge === "gitlab"
+        ? {
+            image: ci.image,
+            tagsYaml: tagsYaml(ci.testsRunner, ci.selfHostedLabels),
+            setupScript: scriptYaml(ci.setup),
+            checksScript: scriptYaml(ci.checks),
+            testsScript: scriptYaml(ci.tests),
+          }
+        : {}),
     },
-    queue: { mode: a.queue.mode, self: a.queue.mode === "self", native: a.queue.mode === "native", jobTimeoutMin: policy.queue.ciTimeoutMin + 20 },
+    queue: { mode: a.queue.mode, self: a.queue.mode === "self", native: a.queue.mode === "native", train: a.queue.mode === "train", jobTimeoutMin: policy.queue.ciTimeoutMin + 20 },
+    gitlab: a.gitlab ? { url: a.gitlab.url, tier: a.gitlab.tier, premium: a.gitlab.tier !== "free", ultimate: a.gitlab.tier === "ultimate" } : null,
     classifier: a.classifier,
-    loops: { sweep: a.loops.sweep && a.paths.security.length > 0, eval: a.loops.eval, metrics: a.loops.metrics },
+    // GitLab: the review eval is not ported yet (it replays past changes in per-case checkouts).
+    loops: { sweep: a.loops.sweep && a.paths.security.length > 0, eval: a.loops.eval && a.forge !== "gitlab", metrics: a.loops.metrics },
     aiCli: aiCliFor(a.reviewer),
     release: a.release,
     stagedRollout: a.stagedRollout,

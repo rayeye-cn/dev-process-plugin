@@ -18,7 +18,7 @@ import { loadPolicy } from "../core/policy.mjs";
 import { openForge, issuesOf } from "../forge/index.mjs";
 import { mapLimit } from "../forge/util.mjs";
 import { reviewerOn } from "../reviewer/index.mjs";
-import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
+import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const DAY = 24 * 3_600_000;
 const day = (d) => d.toISOString().slice(0, 10);
@@ -70,10 +70,15 @@ export function definitionsPath(root) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const repo = typeof args.repo === "string" ? args.repo : process.env.GITHUB_REPOSITORY;
+  let repo = null;
+  try {
+    repo = repoName(args, repoRoot());
+  } catch {
+    repo = null;
+  }
   const days = typeof args.days === "string" ? Number(args.days) : 7;
   if (!repo || !(days > 0)) {
-    console.error("usage: metrics.mjs [--repo owner/name] [--days 7] [--dry-run] (or set GITHUB_REPOSITORY)");
+    console.error("usage: metrics.mjs [--repo owner/name] [--days 7] [--dry-run] (or set GITHUB_REPOSITORY / CI_PROJECT_PATH)");
     process.exitCode = 2;
     return;
   }
