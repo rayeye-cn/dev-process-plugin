@@ -56,6 +56,13 @@ export const WORKFLOW_STRINGS = {
     // review-metrics.yml
     metricsJob: "评审指标周报",
     metricsRun: "统计上周并写进周报 issue",
+    // claude-review.yml
+    aiReviewJob: "Claude 评审",
+    aiReviewCheck: "判断要不要评审这个提交",
+    aiReviewPrompt: "组评审提示词",
+    aiReviewRun: "Claude 评审 diff（行内评论加一条总结）",
+    aiReviewVerify: "核对评审结果，没评成就留通知",
+    aiReviewWakeGate: "留了通知后让风险门重判",
   },
   en: {
     setupNode: "Set up Node",
@@ -104,5 +111,12 @@ export const WORKFLOW_STRINGS = {
     // review-metrics.yml
     metricsJob: "Weekly review metrics",
     metricsRun: "Measure the last week and post to the report issue",
+    // claude-review.yml
+    aiReviewJob: "Claude review",
+    aiReviewCheck: "Decide whether to review this commit",
+    aiReviewPrompt: "Build the review prompt",
+    aiReviewRun: "Claude reviews the diff (inline comments plus one summary)",
+    aiReviewVerify: "Check the review came out, else leave a notice",
+    aiReviewWakeGate: "Re-run the risk gate after a notice",
   },
 };

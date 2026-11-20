@@ -18,6 +18,7 @@ const variants = {
   en: { ...raw, language: "en" },
   "self-hosted-tests-no-release": { ...raw, ci: { ...raw.ci, testsRunner: "self-hosted", releaseGate: null } },
   "checks-only-no-classifier": { ...raw, classifier: false, ci: { ...raw.ci, tests: [], releaseGate: null } },
+  "claude-en": { ...raw, language: "en", reviewer: "claude" },
 };
 for (const [name, a] of Object.entries(variants)) {
   const dir = join(out, name);

@@ -125,3 +125,26 @@ describe("loginsToCheck", () => {
     assert.deepEqual([...loginsToCheck({ ...args, reviewedHead: true })], ["bob"]);
   });
 });
+
+describe("judgeChange with Claude as the reviewer", async () => {
+  const { createClaudeReviewer, claudeMarker } = await import("../engine/reviewer/claude.mjs");
+  const claude = createClaudeReviewer();
+  const summary = (sha = HEAD, at = "2026-11-18T08:00:00Z", login = "claude[bot]") => ({ login, type: "Bot", body: `Found 0 issues.\nRisk: low\n${claudeMarker(sha)}`, createdAt: at });
+
+  it("a summary comment by the Claude App on the head is the review; the gate refreshes on that comment", async () => {
+    const forge = fakeForge(baseChange({ reviews: [], comments: [...baseChange().comments, summary()] }));
+    const { result } = await judgeChange({ forge, policy, reviewer: claude, number: 7, ...quiet });
+    assert.equal(result.aiReview.reviewedHead, true);
+    assert.equal(result.ok, true);
+  });
+
+  it("stale (before a base change) ⇒ nothing to re-request (the review workflow re-runs on the retarget); the text says so", async () => {
+    const change = baseChange({ reviews: [], comments: [...baseChange().comments, summary(HEAD, "2026-11-19T11:00:00Z")], baseChangedAt: "2026-11-19T12:00:00Z" });
+    const forge = fakeForge(change);
+    const { result, body } = await judgeChange({ forge, policy: { ...policy, language: "en" }, reviewer: claude, number: 7, ...quiet });
+    assert.equal(result.aiReview.staleBase, true);
+    assert.equal(forge.writes.find((w) => w[0] === "rerequest"), undefined);
+    assert.match(body, /re-runs on a retarget by itself/);
+    assert.match(body, /the gate re-runs when its summary comment is posted/);
+  });
+});

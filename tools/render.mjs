@@ -83,6 +83,7 @@ export function manifest(ctx, answers) {
     { out: ".github/workflows/risk-gate.yml", kind: "file", tmpl: tmpl("github/workflows/risk-gate.yml.tmpl") },
     { out: ".github/workflows/risk-gate-events.yml", kind: "file", tmpl: tmpl("github/workflows/risk-gate-events.yml.tmpl") },
     { out: ".github/workflows/merge-queue.yml", kind: "file", tmpl: tmpl("github/workflows/merge-queue.yml.tmpl"), when: (c) => c.queue.self },
+    { out: `.github/workflows/${ctx.policy.names.aiReviewWorkflow}`, kind: "file", tmpl: tmpl("github/workflows/claude-review.yml.tmpl"), when: (c) => c.isClaude },
     { out: ".github/workflows/nightly-review.yml", kind: "file", tmpl: tmpl("github/workflows/nightly-review.yml.tmpl"), when: (c) => c.loops.sweep },
     { out: ".github/workflows/review-eval.yml", kind: "file", tmpl: tmpl("github/workflows/review-eval.yml.tmpl"), when: (c) => c.loops.eval },
     { out: ".github/workflows/review-metrics.yml", kind: "file", tmpl: tmpl("github/workflows/review-metrics.yml.tmpl"), when: (c) => c.loops.metrics },
@@ -124,7 +125,6 @@ const readLock = (target) => {
  * block every pull request): refused here, at the entry point the skills and the CLI use.
  */
 export const NOT_YET = Object.freeze([
-  { field: "reviewer", value: "claude", why: "the Claude reviewer (review workflow and gate adapter) arrives in the next plugin version" },
   { field: "queue.mode", value: "native", why: "the forge's native merge queue needs merge_group CI and gate support that is not built yet; use \"self\"" },
 ]);
 

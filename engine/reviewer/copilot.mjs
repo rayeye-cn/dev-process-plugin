@@ -36,4 +36,5 @@ export const copilot = Object.freeze({
 
   /** Is this reviewer already among the requested reviewers (so a re-request would be a no-op)? */
   isRequested: (requestedLogins = []) => requestedLogins.some((l) => copilot.isReviewer(l)),
+  rerequestable: true,
 });

@@ -142,8 +142,8 @@ async function main() {
   }
   const root = repoRoot();
   const policy = loadPolicy(root);
-  const reviewer = reviewerFor(policy.reviewer);
   const forge = createForge(policy, { repo });
+  const reviewer = reviewerFor(policy.reviewer, { ciIdentity: forge.ciIdentity, accounts: policy.aiReview.accounts });
   const { body, aggregate: agg } = await collectMetrics({ forge, policy, reviewer, days });
   console.log(body);
   if (args["dry-run"]) return;

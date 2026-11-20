@@ -1,0 +1,105 @@
+# AI review by Claude (layer 2 of the review process): anthropics/claude-code-action reviews every push of a PR, posts
+# one inline comment per finding and ONE summary comment that ends with `<!-- ai-review:claude sha=<head sha> -->`.
+# The gate ({{ engine }}/core/gate.mjs, {{ engine }}/reviewer/claude.mjs) counts a review only from that summary by the
+# Claude GitHub App on the head commit, and requires every inline comment to be answered.
+#
+# Needs the ANTHROPIC_API_KEY repository secret and the Claude GitHub App installed on the repository (the action
+# exchanges this job's OIDC token for the App's token, so comments post as claude[bot] and wake the gate).
+# Optional repository variable CLAUDE_REVIEW_MODEL picks the model.
+#
+# Triggers and trust:
+# - pull_request (never pull_request_target): a PR from a fork runs without secrets and with a read-only token, so it is
+#   not reviewed at all (the gate's text points at the waiver). For PRs from branches of this repository, the author
+#   already has write access; the workflow file and the review instructions are on high-tier paths, so a PR that
+#   changes how it gets reviewed needs a human.
+# - Pushes (opened / synchronize / reopened / ready_for_review) and retargets (edited with a base change: reviews before
+#   a target-branch change don't count). Drafts are not reviewed. Nothing dispatches this workflow:
+#   claude-code-action only offers its inline-comment tool on PR events. A missing review is fixed by re-running the job.
+# - When no review came out (no key, the action failed, no summary) the job leaves a notice as github-actions[bot] and
+#   re-runs the gate, which quotes it. Notices never count as a review.
+name: claude-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+# Nothing at the workflow level; the job asks for what it needs.
+permissions: {}
+
+# One review per PR at a time; a newer push cancels the review of the older head. Title and description edits (edited
+# without a base change) get a group of their own, so they never cancel a running review (their job is skipped).
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && github.event.changes.base == null && github.run_id || 'review' }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: {{ s.aiReviewJob }}
+    if: >-
+      (github.event.action != 'edited' || github.event.changes.base != null) &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write # claude-code-action exchanges it for the Claude GitHub App's token
+      actions: write # only to re-run the gate after leaving a notice
+    # GH_TOKEN (github-actions[bot]) only on the steps that read the PR or post the notice; the review step posts as
+    # the Claude App.
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # When this event IS the retarget, its time (the timeline may lag): the same rule as the gate's.
+      BASE_CHANGED_AT: ${{ github.event.changes.base != null && github.event.pull_request.updated_at || '' }}
+      KEY_SET: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    steps:
+      # The PR head, not the merge commit: inline comments are placed on the head's lines.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      - name: {{ s.aiReviewCheck }}
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node {{ engine }}/cli/ai-review.mjs should-review --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA"
+      - name: {{ s.aiReviewPrompt }}
+        id: prompt
+        if: steps.check.outputs.review == 'true' && steps.check.outputs.key == 'true'
+        run: node {{ engine }}/cli/ai-review.mjs prompt --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA"
+      # The prompt reaches the action as an input (never through a shell). Read-only tools plus the two ways to comment.
+      - name: {{ s.aiReviewRun }}
+        id: claude
+        if: steps.check.outputs.review == 'true' && steps.check.outputs.key == 'true'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.prompt.outputs.text }}
+          allow_fork_prs: "false"
+          classify_inline_comments: "false"
+          claude_args: >-
+            --max-turns {{ policy.aiReview.maxTurns }}
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
+            ${{ vars.CLAUDE_REVIEW_MODEL && format('--model {0}', vars.CLAUDE_REVIEW_MODEL) || '' }}
+      - name: {{ s.aiReviewVerify }}
+        id: verify
+        if: steps.check.outputs.review == 'true' && !cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.claude.outcome }}
+        run: node {{ engine }}/cli/ai-review.mjs verify --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA" --outcome "$OUTCOME"
+      # A comment posted with GITHUB_TOKEN starts no workflow, so the gate would not show the notice until the next event.
+      - name: {{ s.aiReviewWakeGate }}
+        if: steps.verify.outputs.notice == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: gh workflow run {{ policy.names.gateWorkflow }} --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH" -f pr="$PR"

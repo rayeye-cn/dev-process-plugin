@@ -95,8 +95,8 @@ export async function judgeChange({ forge, policy, reviewer, number, dryRun = fa
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = loadPolicy(repoRoot());
-  const reviewer = reviewerFor(policy.reviewer);
   const forge = createForge(policy, { repo: typeof args.repo === "string" ? args.repo : undefined });
+  const reviewer = reviewerFor(policy.reviewer, { ciIdentity: forge.ciIdentity, accounts: policy.aiReview.accounts });
   const headSha = typeof args["head-sha"] === "string" ? args["head-sha"] : null;
   const number = typeof args.pr === "string" && args.pr ? args.pr : headSha ? await forge.findOpenPrByHead(headSha) : null;
   if (!number && headSha) {

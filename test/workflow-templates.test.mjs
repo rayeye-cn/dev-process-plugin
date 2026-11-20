@@ -8,7 +8,7 @@ import { describe, it } from "node:test";
 
 import { requiredContexts } from "../engine/core/protection.mjs";
 import { validateAnswers } from "../tools/answers.mjs";
-import { aiCliFor, buildContext, instructionPaths, policyFrom } from "../tools/context.mjs";
+import { buildContext } from "../tools/context.mjs";
 import { renderTemplate } from "../tools/template.mjs";
 import { WORKFLOW_STRINGS } from "../templates/github/strings.mjs";
 
@@ -19,22 +19,8 @@ const templateOf = (w) => readFileSync(new URL(`../templates/github/workflows/${
 /** Fixture answers with overrides (`ci` merged one level deep). */
 const answersWith = (over = {}) => ({ ...raw, ...over, ci: { ...raw.ci, ...(over.ci ?? {}) } });
 
-/**
- * Context for answers. The Claude reviewer adapter (engine/reviewer) is not there yet, so buildContext rejects
- * `reviewer: "claude"`; until it lands, derive the Claude context from the Copilot one by replacing every field the
- * contract says depends on the reviewer. Once the adapter exists, the real buildContext is used.
- */
-function contextFor(over) {
-  const a = validateAnswers(answersWith(over));
-  try {
-    return buildContext(a);
-  } catch (e) {
-    if (a.reviewer !== "claude" || !/unknown reviewer/.test(e.message)) throw e;
-    const c = buildContext({ ...a, reviewer: "copilot" });
-    const paths = instructionPaths("claude");
-    return { ...c, reviewer: "claude", ai: "Claude", isCopilot: false, isClaude: true, policy: policyFrom(a), instructionsPath: paths.instructions, securityPath: paths.security, aiCli: aiCliFor("claude") };
-  }
-}
+/** Context for answers. */
+const contextFor = (over) => buildContext(validateAnswers(answersWith(over)));
 
 const VARIANTS = {
   "fixture (zh, Copilot, hosted tests, self-hosted release gate, classifier, self queue)": {},
@@ -56,7 +42,9 @@ const VARIANTS = {
 
 const rendered = Object.entries(VARIANTS).map(([name, over]) => {
   const ctx = contextFor(over);
-  const files = Object.fromEntries(WORKFLOWS.map((w) => [w, renderTemplate(templateOf(w), ctx, `${w}.yml.tmpl`)]));
+  // The Claude review workflow is rendered only for a Claude setup.
+  const list = ctx.isClaude ? [...WORKFLOWS, "claude-review"] : WORKFLOWS;
+  const files = Object.fromEntries(list.map((w) => [w, renderTemplate(templateOf(w), ctx, `${w}.yml.tmpl`)]));
   return { name, ctx, files };
 });
 const each = (fn) => {
@@ -277,7 +265,7 @@ describe("workflow templates render cleanly for every variant", () => {
   const people = [...raw.people.trustedAuthors, ...raw.people.codeOwners, ...raw.people.onCall];
   each(({ name, ctx, files }) => {
     it(`${name}: no template leftovers, sound structure, stable names, workflow-level permissions: {}`, () => {
-      for (const w of WORKFLOWS) {
+      for (const w of Object.keys(files)) {
         const text = files[w];
         const where = `${name} / ${w}.yml`;
         text.split("\n").forEach((line, i) => {
@@ -298,7 +286,7 @@ describe("workflow templates render cleanly for every variant", () => {
     });
 
     it(`${name}: every job has runs-on, a timeout and its own permissions; checkouts drop credentials; node is pinned`, () => {
-      for (const w of WORKFLOWS) {
+      for (const w of Object.keys(files)) {
         for (const job of Object.values(jobsOf(files[w]))) {
           const where = `${name} / ${w} / ${job.id}`;
           assert.ok(job.prop("runs-on"), `${where}: runs-on`);
@@ -319,7 +307,7 @@ describe("workflow templates render cleanly for every variant", () => {
     });
 
     it(`${name}: the engine scripts the workflows run exist`, () => {
-      for (const w of WORKFLOWS) {
+      for (const w of Object.keys(files)) {
         for (const [, rel] of files[w].matchAll(/\.dev-process\/engine\/((?:cli|core)\/[\w-]+\.mjs)/g)) {
           assert.ok(existsSync(new URL(`../engine/${rel}`, import.meta.url)), `${w}: ${rel} is not in the engine`);
         }
@@ -329,7 +317,7 @@ describe("workflow templates render cleanly for every variant", () => {
     it(`${name}: job names never take a required check's or a status's name unless they are that check`, () => {
       const contexts = new Set([...requiredContexts(ctx.policy), ctx.policy.names.classifierContext]);
       const own = new Set(ctx.policy.checks.required.concat(ctx.policy.checks.skippable));
-      for (const w of WORKFLOWS) {
+      for (const w of Object.keys(files)) {
         for (const job of Object.values(jobsOf(files[w]))) {
           const n = job.prop("name");
           if (!contexts.has(n)) continue;
@@ -542,7 +530,9 @@ describe("the jobs that run the AI CLI", () => {
   each(({ name, ctx, files }) => {
     it(`${name}: only the expected jobs run the AI, with the reviewer family's credentials and nothing more`, () => {
       const ai = [];
-      for (const w of WORKFLOWS) {
+      for (const w of Object.keys(files)) {
+        // The Claude review job runs the action, not the AI CLI: it has its own checks below.
+        if (w === "claude-review") continue;
         for (const job of Object.values(jobsOf(files[w]))) {
           const where = `${w} / ${job.id}`;
           if (!runsAi(job, ctx)) {
@@ -560,7 +550,56 @@ describe("the jobs that run the AI CLI", () => {
         }
       }
       assert.deepEqual(ai, [...(ctx.classifier ? ["risk-gate / classify"] : []), "nightly-review / sweep", "review-eval / run"]);
-      if (ctx.isClaude) for (const w of WORKFLOWS) assert.doesNotMatch(files[w], /copilot/i, `${w} mentions Copilot in a Claude setup`);
+      if (ctx.isClaude) for (const w of Object.keys(files)) assert.doesNotMatch(files[w], /copilot/i, `${w} mentions Copilot in a Claude setup`);
+    });
+  });
+});
+
+/* ───────────────────────────── claude-review.yml ───────────────────────────── */
+
+describe("claude-review.yml (rendered only for Claude)", () => {
+  each(({ name, ctx, files }) => {
+    it(`${name}: present exactly when Claude reviews`, () => {
+      assert.equal("claude-review" in files, ctx.isClaude);
+    });
+    if (!ctx.isClaude) return;
+    it(`${name}: pull_request (never _target), pushes and retargets, no drafts, one review per head`, () => {
+      const text = files["claude-review"];
+      assert.match(text, /^ {2}pull_request:\n {4}types: \[opened, synchronize, reopened, ready_for_review, edited\]$/m);
+      const on = /^on:\n((?: {2}.*\n)+)/m.exec(text)[1];
+      assert.deepEqual(on.match(/^ {2}\w+(?=:)/gm), ["  pull_request"], "the only trigger");
+      const { review } = jobsOf(text);
+      const cond = review.props.if.lines.join(" ");
+      assert.match(cond, /github\.event\.action != 'edited' \|\| github\.event\.changes\.base != null/);
+      assert.match(cond, /!github\.event\.pull_request\.draft/);
+      // Title edits get their own group and never cancel a running review.
+      assert.match(text, /group: claude-review-\$\{\{ github\.event\.pull_request\.number \}\}-\$\{\{ github\.event\.action == 'edited' && github\.event\.changes\.base == null && github\.run_id \|\| 'review' \}\}/);
+      assert.match(text, /cancel-in-progress: true/);
+    });
+    it(`${name}: checks out the head, reviews with read-only tools, posts as the App, notices as the CI identity`, () => {
+      const text = files["claude-review"];
+      const { review } = jobsOf(text);
+      assert.deepEqual(review.permissions, { contents: "read", "pull-requests": "write", issues: "write", "id-token": "write", actions: "write" });
+      const [co] = checkouts(review);
+      assert.equal(stepBlock(co, "with").ref, "${{ github.event.pull_request.head.sha }}");
+      const action = review.steps.find((s) => stepKey(s, "uses") === "anthropics/claude-code-action@v1");
+      assert.ok(action, "the review step uses claude-code-action@v1");
+      assert.match(action.text, /continue-on-error: true/);
+      assert.match(action.text, /anthropic_api_key: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}/);
+      assert.match(action.text, /allow_fork_prs: "false"/);
+      assert.match(action.text, /--allowedTools "mcp__github_inline_comment__create_inline_comment,Bash\(gh pr comment:\*\),Bash\(gh pr diff:\*\),Bash\(gh pr view:\*\),Read,Grep,Glob"/);
+      assert.match(action.text, new RegExp(`--max-turns ${ctx.policy.aiReview.maxTurns}`));
+      assert.doesNotMatch(action.text, /GH_TOKEN|github_token/, "the action posts with the Claude App's token, not GITHUB_TOKEN");
+      // The workflow token appears only on the steps that read the PR, post the notice or wake the gate.
+      const withToken = review.steps.filter((s) => /GH_TOKEN: \$\{\{ github\.token \}\}/.test(s.text)).map((s) => stepKey(s, "id") ?? "wake");
+      assert.deepEqual(withToken, ["check", "verify", "wake"]);
+      assert.doesNotMatch(review.text.split("steps:")[0], /^\s+GH_TOKEN:/m, "no job-level GH_TOKEN");
+      assert.match(text, /ai-review\.mjs verify .*--outcome "\$OUTCOME"/);
+      assert.match(text, /OUTCOME: \$\{\{ steps\.claude\.outcome \}\}/);
+      assert.match(text, new RegExp(`gh workflow run ${ctx.policy.names.gateWorkflow.replace(".", "\\.")} .*-f pr="\\$PR"`));
+      // Only the key's presence reaches the steps outside the action.
+      assert.equal((text.match(/secrets\.ANTHROPIC_API_KEY/g) ?? []).length, 2);
+      assert.match(text, /KEY_SET: \$\{\{ secrets\.ANTHROPIC_API_KEY != '' \}\}/);
     });
   });
 });
@@ -660,6 +699,6 @@ describe("workflow strings", () => {
 
   it("every s.<key> a template uses exists", () => {
     const keys = new Set(Object.keys(WORKFLOW_STRINGS.en));
-    for (const w of WORKFLOWS) for (const [, k] of templateOf(w).matchAll(/\{\{ s\.(\w+) \}\}/g)) assert.ok(keys.has(k), `${w}: s.${k}`);
+    for (const w of [...WORKFLOWS, "claude-review"]) for (const [, k] of templateOf(w).matchAll(/\{\{ s\.(\w+) \}\}/g)) assert.ok(keys.has(k), `${w}: s.${k}`);
   });
 });

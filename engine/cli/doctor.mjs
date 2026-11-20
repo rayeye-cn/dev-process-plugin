@@ -31,6 +31,7 @@ const f = (level, code, params = {}) => ({ level, code, params });
 export function expectedWorkflows(policy) {
   const out = ["ci.yml", "risk-gate.yml", "risk-gate-events.yml"];
   if (policy.queue.mode === "self") out.push("merge-queue.yml");
+  if (policy.reviewer === "claude") out.push(policy.names.aiReviewWorkflow);
   return out;
 }
 

@@ -6,6 +6,7 @@
  * Machine-read tokens never live in messages (they would change with the language): see the `*_TOKEN` constants
  * in the core modules.
  */
+import aiReview from "./ai-review.mjs";
 import classify from "./classify.mjs";
 import doctor from "./doctor.mjs";
 import evalTexts from "./eval.mjs";
@@ -16,7 +17,7 @@ import queue from "./queue.mjs";
 import release from "./release.mjs";
 import sweep from "./sweep.mjs";
 
-export const MODULES = Object.freeze({ gate, queue, release, metrics, classify, sweep, eval: evalTexts, protection, doctor });
+export const MODULES = Object.freeze({ gate, queue, release, metrics, classify, sweep, eval: evalTexts, protection, doctor, aiReview });
 export const LANGUAGES = Object.freeze(["zh", "en"]);
 
 const CATALOG = Object.fromEntries(LANGUAGES.map((lang) => [lang, Object.assign({}, ...Object.values(MODULES).map((m) => m[lang]))]));

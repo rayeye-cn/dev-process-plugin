@@ -39,7 +39,10 @@ It prints `{ facts, proposal }`. `proposal` has the answers shape (see `<plugin>
 Show the proposal as a short summary, then ask (AskUserQuestion, at most 4 questions per call, recommended option first):
 
 1. **Project language** (zh / en) for everything the team reads: CLAUDE.md, PR template, review instructions, gate comments, docs. Default: `facts.language`.
-2. **AI reviewer**: GitHub Copilot code review. It needs the organization's Copilot code review policy: reviews without a license, billed to the organization, an AI-credit budget above zero — reviews cost money, say so. **In this version Copilot is the only reviewer**; Claude as the reviewer arrives in the next version (the renderer refuses `reviewer: "claude"` until then — tell the user if they ask).
+2. **AI reviewer** — both cost money, say so:
+   - `copilot`: GitHub Copilot code review. Needs the organization's Copilot code review policy (reviews without a license, billed to the organization, an AI-credit budget above zero) and a ruleset that requests a review on every push.
+   - `claude`: a generated review workflow running `anthropics/claude-code-action`, billed to an Anthropic API key. Needs the `ANTHROPIC_API_KEY` repository secret and the Claude GitHub app installed on the repository. Pull requests from forks and from bots are not reviewed (no secret there); the waiver covers them.
+   Recommend the one the organization already pays for; with neither, `claude` needs only a key.
 3. **Merge queue**: `self` — the built-in queue that re-runs CI on the latest default branch before merging. The forge's native merge queue is not supported yet even where `facts.remote.nativeQueue` is true (the renderer refuses `queue.mode: "native"`); mention it as a later option when it applies.
 4. **Loops** (multi-select): AI risk classifier (second opinion, can only raise a tier), nightly AI sweep (needs security paths), review eval (replays past bugs weekly), weekly metrics.
 

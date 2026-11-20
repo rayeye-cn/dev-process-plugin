@@ -44,8 +44,10 @@
 {{else}}
 1. **加仓库密钥 `ANTHROPIC_API_KEY`**：仓库设置 → Secrets and variables → Actions → New repository secret。Claude 评审作业、风险分档的 AI 第二意见、夜间巡检和评审用例集（启用了的话）都用它，费用记在这个 Key 所属的 Anthropic 账号上。
    - Key 失效或额度用完时，评审作业会失败，门会一直显示「等 Claude 评审」。先换 Key 或补额度；一时补不上，就用豁免命令兜底（见下面「常见问题」）。
-   - 只放成仓库级 secret。GitHub 不会把仓库密钥交给 fork 来的 {{ pr }} 触发的工作流。
-1. **安装 Claude GitHub App**：在本仓目录里打开 Claude Code 运行 `/install-github-app`，按提示装到这个仓库；也可以在 github.com/apps/claude 安装，只选这个仓库。评审用的工作流本流程已经生成了，这一步只需要把 App 装上。
+   - 只放成仓库级 secret。GitHub 不会把仓库密钥交给 fork 来的 {{ pr }} 触发的工作流，所以这类 {{ pr }} Claude 不评审，由有写权限的人发豁免命令（见「常见问题」）。
+   - 机器人开的 {{ pr }}（Dependabot、Renovate）：Dependabot 的运行既拿不到密钥、令牌也只读；claude-code-action 默认也不为机器人运行（除非写进它的 `allowed_bots` 输入）。这类 {{ pr }} 用豁免命令。
+1. **安装 Claude GitHub App**：在本仓目录里打开 Claude Code 运行 `/install-github-app`，按提示装到这个仓库；也可以在 github.com/apps/claude 安装，只选这个仓库。评审用的工作流（`.github/workflows/{{ policy.names.aiReviewWorkflow }}`）本流程已经生成了，这一步只需要把 App 装上。评审评论以 `claude[bot]` 的身份发出；没装 App，作业会失败并留一条通知。
+1. **可选：指定模型**：仓库变量 `CLAUDE_REVIEW_MODEL`（Settings → Secrets and variables → Actions → Variables），填模型 id；不填用 action 的默认模型。每次评审最多 {{ policy.aiReview.maxComments }} 条行内评论、{{ policy.aiReview.maxTurns }} 轮（`{{ configPath }}` 里的 `aiReview`，改了要重新渲染）。
 {{/if}}
 {{#if ci.selfHosted}}
 1. **自托管 runner**：`tests`{{#if ci.releaseGate.selfHosted}} 和 `{{ ci.releaseGate.name }}`{{/if}} 跑在自托管 runner 上（`runs-on: {{ ci.testsRunsOn }}`）。仓库设置 → Actions → Runners → New self-hosted runner，装好后标签要和上面一致。
@@ -84,7 +86,10 @@
 - **合并队列不信现成的 `{{ policy.names.gateContext }}` status**：commit status 按提交存，两个 {{ pr }} 指向同一个提交时共用一个结论；{{#if isCopilot}}Copilot 评审触发的重判又可能停在 `action_required`{{else}}AI 评审之后的重判也可能没跑成{{/if}}，让 status 过时。所以队列在入队测试前、合入前，各对**这个 {{ pr }}** 只读地重跑一次完整判定（它自己的签署、批准、对话），通过且与现有 status 一致才放行；不一致就请 `{{ policy.names.gateWorkflow }}` 重判（status 只由它写，同一个 {{ pr }} 的判定串行执行）。
 {{/if}}
 - **人手发的 status 不算**：必需检查都绑定 GitHub Actions 来源，拿个人令牌调 statuses API 发的 `{{ policy.names.gateContext }}`{{#if queue.self}}、`{{ policy.names.queueContext }}`{{/if}} 满足不了规则集。
-- **挡不住的**：有写权限的人在自己的分支上专门写一个工作流，给别的 {{ pr }} 发 status。这是内部人蓄意绕过，本流程不防，靠 CODEOWNERS 和团队约定（`CLAUDE.md`「评审流程」第 11 条）。要防到这一层，得改用专门的 GitHub App 发 status，并把它的私钥放进只允许默认分支使用的 environment。
+{{#if isClaude}}
+- **Claude 评审用的是 {{ pr }} 自己的工作流文件和评审说明**（`pull_request`，从不用 `pull_request_target`）：fork 来的 {{ pr }} 拿不到密钥、不评审；本仓分支的 {{ pr }}，作者本来就有写权限。改评审方式的 {{ pr }}（`.github/**`、`.dev-process/**`）是 high 档，要另一位所有者批准。只有 Claude App 账号（`claude[bot]`）发的、带 head 标记的总结才算；标记谁都能贴，但别人发不成 App 的身份。
+{{/if}}
+- **挡不住的**：有写权限的人在自己的分支上专门写一个工作流，给别的 {{ pr }} 发 status{{#if isClaude}}，或者用 claude-code-action 以 Claude App 的身份发一条假的评审总结{{/if}}。这是内部人蓄意绕过，本流程不防，靠 CODEOWNERS 和团队约定（`CLAUDE.md`「评审流程」第 11 条）。要防到这一层，得改用专门的 GitHub App 发 status，并把它的私钥放进只允许默认分支使用的 environment。
 - **有自托管 runner 时，fork 必须保持关闭**：私有仓库在组织和仓库两级都关掉 fork（组织设置的「Allow forking of private repositories」、仓库设置的「Allow forking」），Actions 设置里也不要勾「Run workflows from fork pull requests」。原因：fork 来的 {{ pr }} 能改它自己那份 CI 工作流，把 `runs-on` 改成自托管 runner，代码就会在你的机器上跑。工作流里对 fork 的拦截、合并队列不收 fork，都只是第二道防线。公开仓库不要用自托管 runner。
 
 ## 常见问题
@@ -96,8 +101,10 @@
   - 评审到了，门**不会自己刷新**：Copilot 触发的工作流要人批准，会停在 `action_required`。在 {{ pr }} 里发一条评论（作者的签署也算）就会重判{{#if queue.self}}；已经打了 `{{ policy.names.queueLabel }}` 标签的，队列每次运行也会重判{{/if}}。
   - 门的评论里引了一条通知（比如「…insufficient remaining quota.」），说明 Copilot 并没有评审：先查前面 Copilot 计费和 AI credits 预算那一步。
 {{else}}
-  - 评审作业在每次推送后自动运行；没跑成（Key 失效、额度用完、超时），就在 Actions 里重跑它。
+  - 评审作业在每次推送后自动运行（草稿不评审，转为可评审时再跑）。一次评审 = Claude 的行内评论 + `claude[bot]` 针对 head 提交发的一条总结评论；总结发出时门会自动重判。
+  - 作业没评成（没设 Key、Key 失效、额度用完、没装 App、没发总结），会以 `github-actions[bot]` 留一条通知，门的评论里会引用它。修好原因后，在 Actions 里**重跑这个作业**（Re-run jobs 沿用原来的 {{ pr }} 事件；这个工作流没有手动触发入口，因为行内评论工具只在 {{ pr }} 事件里有）。
   - 评审到了门还没刷新，就在 {{ pr }} 里发一条评论（作者的签署也算）触发重判{{#if queue.self}}；已经打了 `{{ policy.names.queueLabel }}` 标签的，队列每次运行也会重判{{/if}}。
+  - fork 来的和机器人开的 {{ pr }} 不评审（拿不到密钥）：用下面的豁免命令。
 {{/if}}
   - {{ ai }} 故障或额度一时补不上：有写权限的人在 {{ pr }} 评论里发 `{{ policy.commands.waiver }} <head sha>`，门不再等 {{ ai }}，改为多要 {{ policy.aiReviewWaiverExtraApprovals }} 位他人批准。作者自己发也一样：一个人豁免不了自己，多出来的批准必须是别人的。
   - 写法和签署一样：命令在行首，sha 至少 7 位。只管这一个提交，有新提交要重发；删掉或改掉那条评论就撤销。机器人和没有写权限的人发的不算。
@@ -105,7 +112,11 @@
   - 谁、什么时候发的豁免，记在门的评论里{{#if queue.self}}，也写进合入提交（`AI-Review-Waived:` 一行）{{#if loops.metrics}}；每周指标按合入提交单列豁免次数{{/if}}{{/if}}。
 - **改过 {{ pr }} 的目标分支**（也包括串联的 {{ pr }}：前一个合入后，GitHub 会把下一个的目标分支自动改成 `{{ defaultBranch }}`）：在那之前的 {{ ai }} 评审、签署、他人批准和豁免都不算了。
   - 为什么：改目标分支不换 head、也不算推送，而这些都只绑在 head 上，可 diff 已经变了。不这么做，就能先对着一个夹带了改动的分支开 {{ pr }}，评审、签署完再改到 `{{ defaultBranch }}`，绕过评审。
-  - 每次重判时，如果 {{ ai }} 的评审都在改目标分支之前，门会请它重新评审{{#if isCopilot}}（请不上就在 Reviewers 里手动重新请求 Copilot）{{else}}（没跑起来就在 Actions 里重跑评审作业）{{/if}}；签署和批准要重来。
+{{#if isCopilot}}
+  - 每次重判时，如果 Copilot 的评审都在改目标分支之前，门会请它重新评审（请不上就在 Reviewers 里手动重新请求 Copilot）；签署和批准要重来。
+{{else}}
+  - 评审作业会监听改目标分支，自己重新评审。没跑（由工作流令牌引起的改目标分支{{#if queue.self}}，比如合并队列合掉下面那个 {{ pr }} 并删掉分支后的自动改目标{{/if}}，可能不触发任何工作流），就在 Actions 里重跑最近一次评审作业。签署和批准要重来。
+{{/if}}
   - 代价：串联的 {{ pr }} 在前一个合入后其实 diff 没变，也要重来一次。宁可多要一次，也不去猜旧目标分支是不是已经合进了新的。
 - **{{ ai }} 的意见不对**：回复以 `wrong:` 开头说明理由，再 resolve；`intended:`、`wontfix:`、`fixed:` 同理。这些标签也用来统计 {{ ai }} 的误报率，所以不要不回复就直接 resolve。
 {{#if queue.self}}

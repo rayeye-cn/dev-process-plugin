@@ -5,12 +5,28 @@
 
 /** How a missing AI review gets (re)started, per reviewer. */
 const autoHint = {
-  zh: { copilot: "通常每次推送后几分钟内自动评审；没来就在评审人列表里重新请求 Copilot", claude: "每次推送后评审作业自动运行；没跑成就重跑 AI 评审作业" },
-  en: { copilot: "usually arrives a few minutes after each push; if not, re-request Copilot in the reviewers list", claude: "the review job runs after every push; if it failed, re-run the AI review job" },
+  zh: { copilot: "通常每次推送后几分钟内自动评审；没来就在评审人列表里重新请求 Copilot", claude: "每次推送后评审作业自动运行（草稿不评审）；没跑成就重跑 AI 评审作业" },
+  en: { copilot: "usually arrives a few minutes after each push; if not, re-request Copilot in the reviewers list", claude: "the review job runs after every push (not on drafts); if it failed, re-run the AI review job" },
 };
+/** Does the gate refresh when the review lands? Copilot's review event does not reach it; Claude's summary comment does. */
 const rejudgeHint = {
-  zh: (label) => `评审到了门不会自己刷新，发一条评论或打 \`${label}\` 标签就会重判`,
-  en: (label) => `the gate does not refresh by itself when the review lands: post a comment or add the \`${label}\` label to re-run it`,
+  zh: (reviewer, label) =>
+    reviewer === "claude" ? "它发出总结评论时门会自动重判" : `评审到了门不会自己刷新，发一条评论或打 \`${label}\` 标签就会重判`,
+  en: (reviewer, label) =>
+    reviewer === "claude"
+      ? "the gate re-runs when its summary comment is posted"
+      : `the gate does not refresh by itself when the review lands: post a comment or add the \`${label}\` label to re-run it`,
+};
+/** A review from before the target-branch change: who starts the new one. */
+const staleHint = {
+  zh: (reviewer) =>
+    reviewer === "claude"
+      ? "；它的评审在改目标分支之前、看的是旧 diff。改目标分支时评审作业会自己重跑；没跑（比如合并队列合掉上游 PR 后自动改的目标分支）就手动重跑 AI 评审作业"
+      : "；它的评审在改目标分支之前、看的是旧 diff，门会请它重新评审",
+  en: (reviewer) =>
+    reviewer === "claude"
+      ? "; its review predates the target-branch change and saw an old diff. The review job re-runs on a retarget by itself; if it did not (e.g. the merge queue retargeted the PR after merging the PR below it), re-run the AI review job"
+      : "; its review predates the target-branch change and saw an old diff, so the gate asks it to review again",
 };
 
 const zh = {
@@ -25,8 +41,8 @@ const zh = {
   "base.changed": (p) => `目标分支在 ${p.at} 改过：在那之前的 ${p.ai} 评审、签署、批准与豁免命令都不算`,
 
   "missing.aiReview": (p, h) =>
-    `等 ${p.ai} 评审当前提交 ${h.short(p.sha)}（${autoHint.zh[p.reviewer] ?? autoHint.zh.copilot}；${rejudgeHint.zh(p.queueLabel)}）` +
-    (p.staleBase ? `；它的评审在改目标分支之前、看的是旧 diff，门会请它重新评审` : "") +
+    `等 ${p.ai} 评审当前提交 ${h.short(p.sha)}（${autoHint.zh[p.reviewer] ?? autoHint.zh.copilot}；${rejudgeHint.zh(p.reviewer, p.queueLabel)}）` +
+    (p.staleBase ? staleHint.zh(p.reviewer) : "") +
     (p.notice !== null && p.notice !== undefined ? `；它在这个提交上只留了一条通知：「${p.notice || "（空正文）"}」` : "") +
     (p.ignored ? `；${h.tr(p.ignored)}` : "") +
     `。${p.ai} 故障或额度用完时，有写权限的人可以在评论里发 \`${p.cmd}\`，改为多要 ${p.extra} 位他人批准`,
@@ -80,8 +96,8 @@ const en = {
   "base.changed": (p) => `The target branch changed at ${p.at}: ${p.ai} reviews, sign-offs, approvals and waivers before then don't count`,
 
   "missing.aiReview": (p, h) =>
-    `Wait for ${p.ai} to review the head commit ${h.short(p.sha)} (${autoHint.en[p.reviewer] ?? autoHint.en.copilot}; ${rejudgeHint.en(p.queueLabel)})` +
-    (p.staleBase ? "; its review predates the target-branch change and saw an old diff, so the gate asks it to review again" : "") +
+    `Wait for ${p.ai} to review the head commit ${h.short(p.sha)} (${autoHint.en[p.reviewer] ?? autoHint.en.copilot}; ${rejudgeHint.en(p.reviewer, p.queueLabel)})` +
+    (p.staleBase ? staleHint.en(p.reviewer) : "") +
     (p.notice !== null && p.notice !== undefined ? `; it left only a notice on this commit: "${p.notice || "(empty body)"}"` : "") +
     (p.ignored ? `; ${h.tr(p.ignored)}` : "") +
     `. If ${p.ai} is down or out of quota, someone with write access can comment \`${p.cmd}\` to require ${p.extra} more approval(s) instead`,

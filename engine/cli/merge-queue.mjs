@@ -388,7 +388,7 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  await runQueue({ forge, policy, reviewer: reviewerFor(policy.reviewer), dryRun: Boolean(args["dry-run"]) });
+  await runQueue({ forge, policy, reviewer: reviewerFor(policy.reviewer, { ciIdentity: forge.ciIdentity, accounts: policy.aiReview.accounts }), dryRun: Boolean(args["dry-run"]) });
 }
 
 runIfMain(import.meta.url, "merge-queue", main);

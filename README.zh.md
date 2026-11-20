@@ -4,7 +4,7 @@
 
 English: [README.md](README.md).
 
-> **状态：预发布（M2）。** 已能在 GitHub 上安装：评审方用 GitHub Copilot，合并用自建队列；还没在真实仓库上端到端验证（M4）。Claude 评审、原生合并队列和 GitLab 在后面几个阶段。
+> **状态：预发布（M3）。** 已能在 GitHub 上安装：评审方用 GitHub Copilot 或 Claude，合并用自建队列；还没在真实仓库上端到端验证（M4）。原生合并队列和 GitLab 在后面几个阶段。
 
 ## 装上之后有什么
 
@@ -22,7 +22,7 @@ English: [README.md](README.md).
 ## 支持范围
 
 - **代码托管**：GitHub.com。计划支持：GitHub Enterprise Server、私有化部署的 GitLab（Free/CE、Premium、Ultimate，版本 ≥ 17.11，自动识别档位，生成的文档里写明每一档能强制哪些规则）。
-- **AI 评审**：GitHub Copilot。计划支持：Claude（GitHub 上用 `anthropics/claude-code-action`，GitLab 上用 Claude CLI 作业）。
+- **AI 评审**：GitHub Copilot，或者 Claude（生成的工作流里跑 `anthropics/claude-code-action`；需要 `ANTHROPIC_API_KEY` 和 Claude GitHub App）。计划支持：GitLab 上用 Claude CLI 作业。
 - **合并队列**：自建队列。计划支持：套餐允许时用 GitHub 原生合并队列，GitLab 用合并列车。
 - **语言**：中文或英文，初始化时选。
 
@@ -40,7 +40,7 @@ English: [README.md](README.md).
 - [x] M0 仓库骨架、清单文件、CI
 - [x] M1 从参照实现中抽出引擎（GitHub、Copilot、中文）
 - [x] M2 英文文案、双语模板、确定性渲染器，以及 `init`、`doctor`、`upgrade` 三个技能（GitHub + Copilot + 自建队列）
-- [ ] M3 GitHub 上的 Claude 评审
+- [x] M3 GitHub 上的 Claude 评审（评审工作流、评审方适配器、通知）
 - [ ] M4 在 GitHub 沙盒仓库里做端到端验证
 - [ ] M5 私有化 GitLab（全部档位）
 - [ ] M6 在 GitLab 上做端到端验证

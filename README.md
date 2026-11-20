@@ -4,7 +4,7 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 
 中文说明见 [README.zh.md](README.zh.md).
 
-> **Status: pre-release (M2).** Installs on GitHub with GitHub Copilot as the reviewer and the built-in merge queue; not yet validated end to end on a real repository (M4). Claude as the reviewer, the native merge queue and GitLab come next.
+> **Status: pre-release (M3).** Installs on GitHub with GitHub Copilot or Claude as the reviewer and the built-in merge queue; not yet validated end to end on a real repository (M4). The native merge queue and GitLab come next.
 
 ## What it installs
 
@@ -22,7 +22,7 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 ## Supported
 
 - **Forges:** GitHub.com. Planned: GitHub Enterprise Server, self-managed GitLab (Free/CE, Premium, Ultimate; ≥ 17.11, tier detected, with what each tier can enforce stated in the generated docs).
-- **AI reviewer:** GitHub Copilot. Planned: Claude (`anthropics/claude-code-action` on GitHub, a Claude CLI job on GitLab).
+- **AI reviewer:** GitHub Copilot, or Claude (`anthropics/claude-code-action` in a generated workflow; needs `ANTHROPIC_API_KEY` and the Claude GitHub app). Planned: Claude as a CLI job on GitLab.
 - **Merge queue:** the built-in queue. Planned: GitHub's native merge queue where the plan allows it, GitLab merge trains.
 - **Language:** Chinese or English, chosen at init.
 
@@ -40,7 +40,7 @@ Then, in the repository to set up: `/dev-process:init`.
 - [x] M0 Repository skeleton, manifests, CI
 - [x] M1 Engine extracted from the reference implementation (GitHub, Copilot, Chinese)
 - [x] M2 English catalog, bilingual templates, deterministic renderer, `init`, `doctor` and `upgrade` skills (GitHub + Copilot + built-in queue)
-- [ ] M3 Claude reviewer on GitHub
+- [x] M3 Claude reviewer on GitHub (review workflow, reviewer adapter, notices)
 - [ ] M4 End-to-end validation in a sandbox GitHub repository
 - [ ] M5 Self-managed GitLab (all tiers)
 - [ ] M6 End-to-end validation on GitLab

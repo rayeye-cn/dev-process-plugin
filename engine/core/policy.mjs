@@ -50,7 +50,14 @@ export const DEFAULTS = Object.freeze({
     ciWorkflow: "ci.yml",
     gateWorkflow: "risk-gate.yml",
     queueWorkflow: "merge-queue.yml",
+    /** Claude reviewer: the review workflow (doctor checks it is there). */
+    aiReviewWorkflow: "claude-review.yml",
   },
+  /**
+   * Claude reviewer. accounts: its logins when they differ from the default (e.g. your own Claude GitHub App);
+   * maxComments: inline comments per review, most severe first; maxTurns: the review session's turn cap.
+   */
+  aiReview: { accounts: [], maxComments: 10, maxTurns: 60 },
   checks: { required: ["checks", "tests"], skippable: [] },
   queue: { mode: "self", ciTimeoutMin: 120, maxAttempts: 3, pollSeconds: 20, gatePendingStaleMin: 20, mergeMethod: "merge" },
   patterns: { revert: "^(revert|回滚)", fix: "^fix\\b" },

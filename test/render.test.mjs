@@ -141,11 +141,25 @@ describe("the CLI, as the init skill runs it", () => {
 });
 
 describe("options that are not available yet", () => {
-  it("plan refuses the Claude reviewer and the native queue with a clear reason", async () => {
+  it("plan refuses the native queue with a clear reason", async () => {
     const { AnswersError } = await import("../tools/answers.mjs");
     const d = tempRepo();
-    assert.throws(() => plan(d, { ...answers, reviewer: "claude" }), (e) => e instanceof AnswersError && /reviewer: "claude" is not available yet/.test(e.message));
     assert.throws(() => plan(d, { ...answers, queue: { mode: "native" } }), (e) => e instanceof AnswersError && /queue\.mode: "native" is not available yet/.test(e.message));
+  });
+
+  it("Claude: the review workflow and our instruction files, no Copilot files; the rendered setup passes the local doctor", async () => {
+    const { localFindings } = await import("../engine/cli/doctor.mjs");
+    const { buildPrompt } = await import("../engine/cli/ai-review.mjs");
+    const d = tempRepo();
+    const p = plan(d, { ...answers, language: "en", reviewer: "claude" });
+    const paths = p.entries.map((e) => e.path);
+    for (const f of [".github/workflows/claude-review.yml", ".dev-process/ai-review/instructions.md", ".dev-process/ai-review/security.md"]) assert.ok(paths.includes(f), f);
+    assert.deepEqual(paths.filter((f) => !f.startsWith(".dev-process/engine/") && /copilot|\.github\/instructions\//.test(f)), []);
+    apply(d, p);
+    assert.deepEqual(localFindings(d, p.ctx.policy).filter((f) => f.level === "error"), []);
+    const prompt = buildPrompt({ policy: p.ctx.policy, root: d, repo: "o/r", number: "7", sha: "a".repeat(40) });
+    assert.match(prompt, /<!-- ai-review:claude sha=a{40} -->/);
+    assert.ok(prompt.includes(readFileSync(join(d, ".dev-process/ai-review/instructions.md"), "utf8").trim().split("\n")[0]));
   });
 
   it("Copilot without security paths: no security file, and the instructions still load", async () => {

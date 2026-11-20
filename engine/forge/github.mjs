@@ -214,13 +214,16 @@ export function createGithub({ repo, env = process.env, fetch: fetchImpl = globa
       return (r.users ?? []).map((u) => u.login);
     },
 
-    /** Ask the AI reviewer to review again. Copilot: `gh pr edit --add-reviewer @copilot` (the REST endpoint does not accept it). */
+    /**
+     * Ask the AI reviewer to review again: `gh pr edit --add-reviewer @copilot` (the REST endpoint does not accept it).
+     * Only reviewers with `rerequestable` get here; Claude's review workflow re-runs on its own events instead.
+     */
     async requestAiReview(number, reviewerId) {
       if (reviewerId === "copilot") {
         execFileSync("gh", ["pr", "edit", String(number), "--repo", full, "--add-reviewer", "@copilot"], { stdio: "pipe" });
         return;
       }
-      throw new Error(`requestAiReview: reviewer "${reviewerId}" is not supported on GitHub yet`);
+      throw new Error(`requestAiReview: reviewer "${reviewerId}" cannot be re-requested on GitHub`);
     },
 
     /**

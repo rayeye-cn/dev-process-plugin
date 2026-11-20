@@ -92,7 +92,7 @@ export function latestTime(...times) {
 
 /** Re-request the AI review: all real reviews of the head predate the base change, and it is not requested already. */
 export function needAiRerequest(aiReview, requestedLogins, reviewer) {
-  return Boolean(aiReview?.staleBase) && !reviewer.isRequested(requestedLogins ?? []);
+  return Boolean(aiReview?.staleBase) && reviewer.rerequestable !== false && !reviewer.isRequested(requestedLogins ?? []);
 }
 
 /** The author's sign-off of the head; signed an older commit ⇒ `{ stale }`; before the base change ⇒ `{ stale, beforeBase }`. */
