@@ -30,7 +30,7 @@ const USAGE = "usage: post-review.mjs --pr <iid> --head-sha <40-hex sha> --revie
  */
 export async function postReview({ forge, policy, reviewer, number, sha, raw, outcome = "success", keySet = true, env = process.env, log = console.log }) {
   const change = await forge.loadChange(number, { baseHint: env.BASE_CHANGED_AT || null });
-  const d = reviewDecision({ reviewer, change, eventHead: sha });
+  const d = reviewDecision({ reviewer, change, eventHead: sha, forks: true });
   if (!d.review) {
     log(`[post-review] !${number}: ${d.reason}; nothing posted`);
     return { posted: null, reason: d.reason };

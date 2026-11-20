@@ -15,12 +15,14 @@ export const SKIP = Object.freeze({ fork: "fork", draft: "draft", superseded: "s
  * Should this run review? `{ review, reason, code, params }`; reason is one of SKIP or "run".
  * @param change    the forge's loadChange shape (headSha, draft, fromFork, comments, baseChangedAt)
  * @param eventHead the head sha of the event that started the run
+ * @param forks     review changes from forks too (GitLab)
  */
-export function reviewDecision({ reviewer, change, eventHead }) {
+export function reviewDecision({ reviewer, change, eventHead, forks = false }) {
   const sha = change.headSha;
   const skip = (reason) => ({ review: false, reason, code: `aiReview.skip.${reason}`, params: { sha, eventHead } });
-  // A fork PR's run has no secrets and a read-only token; claude-code-action would refuse it anyway.
-  if (change.fromFork) return skip(SKIP.fork);
+  // GitHub: a fork PR's run has no secrets and a read-only token; claude-code-action would refuse it anyway. GitLab
+  // (`forks`): the review runs in the default branch's pipeline and only reads the MR head, so forks are reviewed too.
+  if (change.fromFork && !forks) return skip(SKIP.fork);
   if (change.draft) return skip(SKIP.draft);
   // A newer push started its own run; reviewing the old head would only be noise.
   if (eventHead && eventHead !== sha) return skip(SKIP.superseded);

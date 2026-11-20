@@ -464,13 +464,18 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
      * transition to the state the status already has ("Cannot transition status via …"): already done, not an error.
      */
     async setStatus(sha, context, state, description, targetUrl) {
+      const want = STATE_OUT[state] ?? "failed";
+      const text = [...String(description)].slice(0, 250).join("");
+      // Unchanged ⇒ no write (the polling schedule re-judges every MR; each write is a job on a pipeline).
+      const mine = (await commitStatuses(sha)).find((x) => x.name === context && x.author?.username === forge.ciIdentity);
+      if (mine && mine.status === want && (mine.description ?? "") === text) return;
       const ref = await statusRef(sha);
       try {
         await rest.post(`${base}/statuses/${sha}`, {
-          state: STATE_OUT[state] ?? "failed",
+          state: want,
           name: context,
           ...(ref ? { ref } : {}),
-          description: [...String(description)].slice(0, 250).join(""),
+          description: text,
           ...(targetUrl ? { target_url: targetUrl } : {}),
         });
       } catch (e) {
@@ -563,6 +568,8 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
         threads: threadsFrom(discussions, { diffRefs: m.diff_refs, isBotLogin }),
         statuses: statuses.map(toStatus),
         baseChangedAt: latestTime(targetChangedAt(notes), baseHint),
+        /** When the head arrived (its diff version): the poll gives a fresh head time for its review to finish. */
+        headPushedAt: latestTime(...versions.filter((v) => v.head_commit_sha === m.sha).map((v) => v.created_at)),
         raw: m,
       };
     },

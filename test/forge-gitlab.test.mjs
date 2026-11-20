@@ -275,6 +275,7 @@ describe("GitLab writes", () => {
   it("setStatus: attached to the source branch (never the MR pipeline), states mapped, description trimmed, 'cannot transition' is done", async () => {
     let refuse = false;
     const fetch = fakeFetch({
+      [`GET ${P}/repository/commits/${HEAD}/statuses`]: () => [],
       [`GET ${P}/repository/commits/${HEAD}/merge_requests`]: () => [{ iid: 7, sha: HEAD, state: "opened", source_branch: "feat/x" }],
       [`POST ${P}/statuses/${HEAD}`]: () => (refuse ? { status: 400, body: { message: "Cannot transition status via :enqueue from :pending (Reason(s): Status cannot transition via \"enqueue\")" } } : { id: 1 }),
     });
@@ -284,9 +285,13 @@ describe("GitLab writes", () => {
     assert.deepEqual(post.body, { state: "failed", name: "risk-gate", ref: "feat/x", description: "x".repeat(250), target_url: "https://u" });
     await forge.setStatus(HEAD, "risk-gate", "success", "ok");
     assert.equal(fetch.calls.filter((c) => c.key.includes("/merge_requests")).length, 1, "the branch is remembered");
+    // The bot's latest status already says this: nothing is written.
+    const same = createGitlab({ env: ENV, fetch: fakeFetch({ "GET /user": () => ({ username: BOT, bot: true }), [`GET ${P}/repository/commits/${HEAD}/statuses`]: () => [{ id: 3, name: "risk-gate", status: "success", description: "ok", author: { username: BOT } }] }) });
+    await same.ready();
+    await same.setStatus(HEAD, "risk-gate", "success", "ok");
     refuse = true;
     await forge.setStatus(HEAD, "risk-gate", "pending", "again");
-    const other = createGitlab({ env: ENV, fetch: fakeFetch({ [`GET ${P}/repository/commits/${HEAD}/merge_requests`]: () => [], [`POST ${P}/statuses/${HEAD}`]: () => ({ status: 403, body: { message: "403 Forbidden" } }) }) });
+    const other = createGitlab({ env: ENV, fetch: fakeFetch({ [`GET ${P}/repository/commits/${HEAD}/statuses`]: () => [], [`GET ${P}/repository/commits/${HEAD}/merge_requests`]: () => [], [`POST ${P}/statuses/${HEAD}`]: () => ({ status: 403, body: { message: "403 Forbidden" } }) }) });
     await assert.rejects(other.setStatus(HEAD, "risk-gate", "success", "d"), /403/);
   });
 
