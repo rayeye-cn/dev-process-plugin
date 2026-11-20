@@ -11,6 +11,7 @@
  *   repo, defaultBranch
  *   policy                          the full policy (names, commands, requiredHumans, thresholds, tags, paths…)
  *   configPath, engine              ".dev-process/config.json", ".dev-process/engine"
+ *   ciCopy                          where the Claude review job checks out the process files beside the PR head
  *   instructionsPath, securityPath  where the AI review instructions live for this reviewer
  *   people.trustedAuthors / codeOwners / onCall, codeownersLines (["/src/update/ @a @b", …])
  *   failureModes, securityChecklist (project lines, may be empty), skipPaths (lowOnly paths, for "don't review")
@@ -32,6 +33,7 @@ import { WORKFLOW_STRINGS } from "../templates/github/strings.mjs";
 
 export const CONFIG_PATH = ".dev-process/config.json";
 export const ENGINE_DIR = ".dev-process/engine";
+export const CI_COPY_DIR = ".dev-process-ci";
 export const NODE_VERSION = "24";
 
 /** Reviewer-specific instruction locations: Copilot only reads its own files; Claude reads ours. */
@@ -147,6 +149,7 @@ export function buildContext(a) {
     policy,
     configPath: CONFIG_PATH,
     engine: ENGINE_DIR,
+    ciCopy: CI_COPY_DIR,
     instructionsPath: paths.instructions,
     securityPath: paths.security,
     people: a.people,

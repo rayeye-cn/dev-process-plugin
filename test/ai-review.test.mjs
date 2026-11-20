@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 
-import { buildPrompt, output, shouldReview, verifyReview } from "../engine/cli/ai-review.mjs";
+import { buildPrompt, output, shouldReview, sideCopy, verifyReview } from "../engine/cli/ai-review.mjs";
 import { hasNotice, reviewDecision, verifyDecision } from "../engine/core/ai-review.mjs";
 import { t } from "../engine/core/messages/index.mjs";
 import { claudeMarker, claudeNoticeMarker, createClaudeReviewer } from "../engine/reviewer/claude.mjs";
@@ -146,6 +146,15 @@ describe("the review prompt", () => {
       assert.ok(p.includes(String(pol.aiReview.maxComments)));
       for (const tag of pol.threadReplyTags) assert.ok(p.includes(`\`${tag}\``), tag);
       assert.ok(p.includes(`\`${pol.commands.signoff}\``) && p.includes(`\`${pol.commands.waiver}\``));
+      assert.doesNotMatch(p, /\.dev-process-ci/);
+      const withCopy = buildPrompt({ policy: { ...pol, language: lang }, root: dir, repo: "o/r", number: "7", sha: HEAD, ignore: ".dev-process-ci" });
+      assert.ok(withCopy.includes("`.dev-process-ci/`"));
     });
   }
+
+  it("the CI's copy is named only when it is a subdirectory of the working directory", () => {
+    assert.equal(sideCopy("/w/.dev-process-ci", "/w"), ".dev-process-ci");
+    assert.equal(sideCopy("/w", "/w"), "");
+    assert.equal(sideCopy("/elsewhere", "/w"), "");
+  });
 });

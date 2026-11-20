@@ -55,11 +55,19 @@ jobs:
       BASE_CHANGED_AT: ${{ github.event.changes.base != null && github.event.pull_request.updated_at || '' }}
       KEY_SET: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     steps:
-      # The PR head, not the merge commit: inline comments are placed on the head's lines.
+      # The PR head, not the merge commit: Claude reads the head's code and comments on the head's lines.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
+          persist-credentials: false
+      # The process files (engine, configuration, review instructions) from the commit this workflow file came from (the
+      # merge with the target branch): a branch cut before the process was installed or upgraded still runs a matching
+      # engine. The prompt tells Claude this directory is not part of the PR.
+      - uses: actions/checkout@v4
+        with:
+          path: {{ ciCopy }}
+          sparse-checkout: .dev-process
           persist-credentials: false
       - name: {{ s.setupNode }}
         uses: actions/setup-node@v4
@@ -69,16 +77,18 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node {{ engine }}/cli/ai-review.mjs should-review --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA"
+        run: node {{ ciCopy }}/{{ engine }}/cli/ai-review.mjs should-review --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA"
       - name: {{ s.aiReviewPrompt }}
         id: prompt
         if: steps.check.outputs.review == 'true' && steps.check.outputs.key == 'true'
-        run: node {{ engine }}/cli/ai-review.mjs prompt --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA"
+        run: node {{ ciCopy }}/{{ engine }}/cli/ai-review.mjs prompt --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA"
       # The prompt reaches the action as an input (never through a shell). Read-only tools plus the two ways to comment.
       - name: {{ s.aiReviewRun }}
         id: claude
         if: steps.check.outputs.review == 'true' && steps.check.outputs.key == 'true'
         continue-on-error: true
+        # Shorter than the job's: a hung review fails here and the notice step still runs.
+        timeout-minutes: 20
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -95,7 +105,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           OUTCOME: ${{ steps.claude.outcome }}
-        run: node {{ engine }}/cli/ai-review.mjs verify --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA" --outcome "$OUTCOME"
+        run: node {{ ciCopy }}/{{ engine }}/cli/ai-review.mjs verify --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA" --outcome "$OUTCOME"
       # A comment posted with GITHUB_TOKEN starts no workflow, so the gate would not show the notice until the next event.
       - name: {{ s.aiReviewWakeGate }}
         if: steps.verify.outputs.notice == 'true'

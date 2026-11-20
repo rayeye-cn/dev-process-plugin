@@ -16,6 +16,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import { isAbsolute, relative } from "node:path";
 
 import { hasNotice, reviewDecision, verifyDecision } from "../core/ai-review.mjs";
 import { reviewInstructions } from "../core/findings.mjs";
@@ -56,9 +57,19 @@ export async function shouldReview({ forge, policy, reviewer, number, eventHead,
   return { ...d, key: env.KEY_SET === "true" };
 }
 
-/** The review prompt for one head (pure apart from reading the instruction files under `root`). */
-export function buildPrompt({ policy, root, repo, number, sha }) {
+/** `root` relative to the working directory when it is a subdirectory of it (the CI's copy beside the PR head), else "". */
+export function sideCopy(root, cwd = process.cwd()) {
+  const rel = relative(cwd, root);
+  return rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel.split("\\").join("/") : "";
+}
+
+/**
+ * The review prompt for one head (pure apart from reading the instruction files under `root`).
+ * @param ignore  a directory in the checkout that is not part of the PR (the CI's copy of the process files)
+ */
+export function buildPrompt({ policy, root, repo, number, sha, ignore = "" }) {
   return t(policy.language, "aiReview.prompt", {
+    ignore,
     repo,
     pr: number,
     sha,
@@ -114,7 +125,7 @@ async function main() {
   const env = process.env;
   const repo = typeof args.repo === "string" ? args.repo : env.GITHUB_REPOSITORY;
   if (cmd === "prompt") {
-    const text = buildPrompt({ policy, root, repo, number, sha });
+    const text = buildPrompt({ policy, root, repo, number, sha, ignore: sideCopy(root) });
     if (env.GITHUB_OUTPUT) output(env, { text });
     else console.log(text);
     return;

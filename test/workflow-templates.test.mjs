@@ -580,11 +580,19 @@ describe("claude-review.yml (rendered only for Claude)", () => {
       const text = files["claude-review"];
       const { review } = jobsOf(text);
       assert.deepEqual(review.permissions, { contents: "read", "pull-requests": "write", issues: "write", "id-token": "write", actions: "write" });
-      const [co] = checkouts(review);
-      assert.equal(stepBlock(co, "with").ref, "${{ github.event.pull_request.head.sha }}");
+      const [head, side, ...more] = checkouts(review);
+      assert.deepEqual(more, []);
+      assert.equal(stepBlock(head, "with").ref, "${{ github.event.pull_request.head.sha }}");
+      assert.equal(stepBlock(head, "with").path, undefined, "Claude works on the head at the workspace root");
+      // The engine runs from the commit the workflow came from (a stale branch may have no engine or an old one).
+      assert.deepEqual(stepBlock(side, "with"), { path: ctx.ciCopy, "sparse-checkout": ".dev-process", "persist-credentials": "false" });
+      const runs = [...text.matchAll(/node (\S+)\/cli\/ai-review\.mjs/g)].map((m) => m[1]);
+      assert.deepEqual(runs, Array(3).fill(`${ctx.ciCopy}/${ctx.engine}`));
       const action = review.steps.find((s) => stepKey(s, "uses") === "anthropics/claude-code-action@v1");
       assert.ok(action, "the review step uses claude-code-action@v1");
       assert.match(action.text, /continue-on-error: true/);
+      // A hung review must fail the step (so the notice still runs), not hit the job timeout (which cancels it).
+      assert.ok(Number(stepKey(action, "timeout-minutes")) < Number(review.prop("timeout-minutes")));
       assert.match(action.text, /anthropic_api_key: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}/);
       assert.match(action.text, /allow_fork_prs: "false"/);
       assert.match(action.text, /--allowedTools "mcp__github_inline_comment__create_inline_comment,Bash\(gh pr comment:\*\),Bash\(gh pr diff:\*\),Bash\(gh pr view:\*\),Read,Grep,Glob"/);
