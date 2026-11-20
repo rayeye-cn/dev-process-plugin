@@ -65,6 +65,11 @@ export const DEFAULTS = Object.freeze({
   eval: { lineSlack: 10, maxDiffBytes: 68000, promptHints: [] },
   /** riskHints: project-specific risk categories for the classifier prompt (one line each). */
   classifier: { enabled: true, riskHints: [], maxDiffBytes: 80000 },
+  /**
+   * Release detection for the heavy "release gate" check (checks.skippable lists it): a PR is a release when it carries
+   * `label`, or when a version field changes (`file` + JSON `field`, compared with the base branch).
+   */
+  release: { label: "release", versionFiles: [{ file: "package.json", field: "version" }] },
   protection: { bypassActorId: 5, integrationId: 15368 },
 });
 
