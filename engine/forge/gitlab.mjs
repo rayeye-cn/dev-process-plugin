@@ -241,7 +241,10 @@ export const gitlabQueueOps = Object.freeze({
    * the inputs as `DEV_PROCESS_<NAME>` variables. Runs as the bot.
    */
   async dispatchWorkflow(forge, workflow, ref, inputs = {}) {
-    const variables = [{ key: "DEV_PROCESS_TASK", value: workflow }, ...Object.entries(inputs).map(([k, v]) => ({ key: `DEV_PROCESS_${k.toUpperCase()}`, value: String(v) }))];
+    // The candidate pipeline has no token to read the MR's labels (release detection needs them): pass them along.
+    const labels = inputs.pr && !("labels" in inputs) ? forge.labelsOf?.(inputs.pr) : undefined;
+    const all = { ...inputs, ...(labels ? { labels: labels.join(",") } : {}) };
+    const variables = [{ key: "DEV_PROCESS_TASK", value: workflow }, ...Object.entries(all).map(([k, v]) => ({ key: `DEV_PROCESS_${k.toUpperCase()}`, value: String(v) }))];
     const p = await forge.rest.post(`${projectPath(forge)}/pipeline`, { ref, variables });
     if (!created.has(forge)) created.set(forge, new Map());
     created.get(forge).set(`${ref}@${p.sha}`, p);
@@ -353,8 +356,10 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
   const notesOf = (iid) => rest.paginate(`${mr(iid)}/notes?sort=asc&order_by=created_at`);
   /** Source branch per head sha, from every MR this adapter read (statuses are attached by it, see setStatus). */
   const refOf = new Map();
+  const labelsByIid = new Map();
   const remember = (m) => {
     if (m?.sha && m?.source_branch) refOf.set(m.sha, m.source_branch);
+    if (m?.iid && Array.isArray(m.labels)) labelsByIid.set(String(m.iid), m.labels.map((l) => (typeof l === "string" ? l : l.name)));
     return m;
   };
   async function statusRef(sha) {
@@ -499,8 +504,10 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
     },
 
     headOf: async (iid) => remember(await rest.get(mr(iid))).sha,
-    /** Record an MR's head → source branch (the queue's reads go through plain functions). */
+    /** Record an MR's head → source branch and its labels (the queue's reads go through plain functions). */
     remember,
+    /** Labels of an MR this adapter has read, or undefined. */
+    labelsOf: (iid) => labelsByIid.get(String(iid)),
 
     async requestedReviewers(iid) {
       return ((await rest.get(mr(iid))).reviewers ?? []).map((u) => u.username);

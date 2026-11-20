@@ -413,7 +413,7 @@ describe("GitLab merge queue (mode self)", async () => {
     const { out, calls } = await run(w);
     assert.deepEqual(out.results.map((r) => [r.number, r.outcome]), [[7, "merged"]]);
     const pipeline = calls.find((c) => c.key === `POST ${P}/pipeline`).body;
-    assert.deepEqual(pipeline, { ref: "merge-queue/pr-7", variables: [{ key: "DEV_PROCESS_TASK", value: "ci" }, { key: "DEV_PROCESS_PR", value: "7" }, { key: "DEV_PROCESS_BASE", value: BASE }] });
+    assert.deepEqual(pipeline, { ref: "merge-queue/pr-7", variables: [{ key: "DEV_PROCESS_TASK", value: "ci" }, { key: "DEV_PROCESS_PR", value: "7" }, { key: "DEV_PROCESS_BASE", value: BASE }, { key: "DEV_PROCESS_LABELS", value: "merge-queue" }] });
     const merge = calls.find((c) => c.key === `PUT ${P}/merge_requests/7/merge`).body;
     assert.equal(merge.sha, HEAD);
     assert.equal(merge.squash, false);

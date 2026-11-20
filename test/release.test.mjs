@@ -207,3 +207,11 @@ describe("detect-release CLI", () => {
     }
   });
 });
+
+describe("GitLab labels", () => {
+  it("comma lists: the MR pipeline's CI_MERGE_REQUEST_LABELS and the queue's DEV_PROCESS_LABELS", () => {
+    assert.deepEqual(labelsFromEnv({ PR_LABELS_CSV: "release, risk:low" }, "release"), ["release", "risk:low"]);
+    assert.deepEqual(labelsFromEnv({ PR_LABELS_CSV: "" }, "release"), []);
+  });
+});
+

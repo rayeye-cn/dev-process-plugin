@@ -67,6 +67,8 @@ export function readVersions({ ref, files, root, git = gitRunner(root) }) {
 
 /** Label names from the pull_request event's environment. */
 export function labelsFromEnv(env, label) {
+  // GitLab: CI_MERGE_REQUEST_LABELS (MR pipelines) and DEV_PROCESS_LABELS (the queue's candidate pipelines) are comma lists.
+  if (env.PR_LABELS_CSV !== undefined && env.PR_LABELS_CSV !== null) return String(env.PR_LABELS_CSV).split(",").map((l) => l.trim()).filter(Boolean);
   if (env.PR_LABELS) {
     const v = parseJson(env.PR_LABELS, "PR_LABELS");
     if (!Array.isArray(v)) throw new Error("PR_LABELS must be a JSON array of label names");
@@ -93,8 +95,9 @@ export async function detectRelease({ policy, env = process.env, root, git = git
     return { release: false, ref: null, versions: [], labeled: false, summary: t(lang, "release.summary.skip", { event }) };
   }
   const versions = readVersions({ ref, files: policy.release?.versionFiles ?? [], root, git });
-  // A queue run has no PR in its event: read the labels of the PR it tests.
-  const labels = event === "workflow_dispatch" ? await lazy().prLabels(env.QUEUE_PR) : labelsFromEnv(env, label);
+  // A queue run has no PR in its event: read the labels of the PR it tests (GitLab passes them along, its candidate
+  // pipeline has no token to read them).
+  const labels = event === "workflow_dispatch" && env.PR_LABELS_CSV === undefined ? await lazy().prLabels(env.QUEUE_PR) : labelsFromEnv(env, label);
   const labeled = hasLabel(labels, label);
   const release = isRelease({ versions, labeled });
   const changed = changedVersions(versions).map((v) => `${v.file}:${v.field}`);
