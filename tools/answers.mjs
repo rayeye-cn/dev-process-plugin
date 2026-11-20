@@ -6,11 +6,12 @@
  * Shape (version 1):
  * {
  *   version: 1,
- *   forge: "github",                       // gitlab: M5
+ *   forge: "github" | "gitlab",
+ *   gitlab: { url: "https://gitlab.example.com", tier: "free" | "premium" | "ultimate" },   // GitLab only
  *   language: "zh" | "en",
  *   reviewer: "copilot" | "claude",        // copilot: GitHub only
  *   project: { name, description? },
- *   repo: "owner/name", defaultBranch: "main",
+ *   repo: "owner/name" (GitLab: "group/…/name"), defaultBranch: "main",
  *   people: { trustedAuthors: [], codeOwners: [], onCall: [] },
  *   paths: { high: [], security: [], lowOnly: [], sizeExcluded?: [] },
  *   failureModes: [],                      // project-specific review checklist lines (optional)
@@ -19,18 +20,22 @@
  *     setup: [step],                       // before checks and tests (toolchain, install)
  *     checks: [step],                      // fast checks on hosted runners → job "checks"
  *     tests: [step],                       // full tests → job "tests"
- *     testsRunner: "hosted" | "self-hosted", selfHostedLabels: ["self-hosted", …],
+ *     testsRunner: "hosted" | "self-hosted", selfHostedLabels: ["self-hosted", …],   // GitLab: runner tags
+ *     image: "node:24",                    // GitLab: the jobs' Docker image
  *     releaseGate: null | { name, steps: [step], runner: "hosted" | "self-hosted", timeoutMin }
  *   },
- *   queue: { mode: "self" | "native" },
+ *   queue: { mode: "self" | "native" | "train" },   // native: GitHub; train: GitLab merge trains (Premium)
  *   classifier: true, loops: { sweep, eval, metrics },
  *   release: { label, versionFiles: [{ file, field }] },
  *   stagedRollout: false
  * }
- * A step is `{ name?, run }` or `{ name?, uses, with? }`.
+ * A step is `{ name?, run }` or `{ name?, uses, with? }` (GitLab: `run` only — job scripts are shell commands).
  */
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9-]*(\/[A-Za-z0-9._-]+)?$/; // login, or org/team
+/** GitLab usernames may hold `.` and `_`; groups nest (`@group/sub`). */
+const GITLAB_ID = /^[A-Za-z0-9_][A-Za-z0-9_.-]*(\/[A-Za-z0-9_.-]+)*$/;
+const TIERS = ["free", "premium", "ultimate"];
 
 export class AnswersError extends Error {}
 
@@ -72,17 +77,25 @@ export function validateAnswers(raw) {
   if (!raw || typeof raw !== "object") throw new AnswersError("answers: must be an object");
   const a = raw;
   if (a.version !== undefined && a.version !== 1) fail("version", "only version 1 is known");
-  const forge = oneOf(a.forge ?? "github", "forge", ["github"]);
+  const forge = oneOf(a.forge ?? "github", "forge", ["github", "gitlab"]);
+  const isGitlab = forge === "gitlab";
+  let gitlab = null;
+  if (isGitlab) {
+    const url = String(a.gitlab?.url ?? "").replace(/\/+$/, "");
+    if (!/^https?:\/\/[^/\s]+(\/[^\s]*)?$/.test(url)) fail("gitlab.url", 'must be the instance URL, e.g. "https://gitlab.example.com"');
+    gitlab = { url, tier: oneOf(a.gitlab?.tier ?? "free", "gitlab.tier", TIERS) };
+  }
   const language = oneOf(a.language ?? "zh", "language", ["zh", "en"]);
-  const reviewer = oneOf(a.reviewer ?? "copilot", "reviewer", ["copilot", "claude"]);
+  const reviewer = oneOf(a.reviewer ?? (isGitlab ? "claude" : "copilot"), "reviewer", ["copilot", "claude"]);
   if (!isStr(a.project?.name)) fail("project.name", "is required");
-  if (!/^[^/\s]+\/[^/\s]+$/.test(a.repo ?? "")) fail("repo", 'must be "owner/name"');
+  if (!(isGitlab ? /^[^/\s]+(\/[^/\s]+)+$/ : /^[^/\s]+\/[^/\s]+$/).test(a.repo ?? "")) fail("repo", isGitlab ? 'must be "group/…/name"' : 'must be "owner/name"');
+  const idRe = isGitlab ? GITLAB_ID : ID;
   if (!isStr(a.defaultBranch)) fail("defaultBranch", "is required");
 
   const people = a.people ?? {};
-  const trustedAuthors = strList(people.trustedAuthors ?? [], "people.trustedAuthors", { min: 1, re: ID });
-  const codeOwners = strList(people.codeOwners ?? trustedAuthors, "people.codeOwners", { min: 1, re: ID });
-  const onCall = strList(people.onCall ?? trustedAuthors, "people.onCall", { re: ID });
+  const trustedAuthors = strList(people.trustedAuthors ?? [], "people.trustedAuthors", { min: 1, re: idRe });
+  const codeOwners = strList(people.codeOwners ?? trustedAuthors, "people.codeOwners", { min: 1, re: idRe });
+  const onCall = strList(people.onCall ?? trustedAuthors, "people.onCall", { re: idRe });
 
   const paths = a.paths ?? {};
   const high = strList(paths.high ?? [], "paths.high");
@@ -110,8 +123,19 @@ export function validateAnswers(raw) {
   const checks = steps(ci.checks, "ci.checks");
   const tests = steps(ci.tests, "ci.tests");
   if (!checks.length && !tests.length) fail("ci", "needs at least one check or test step");
+  const setup = steps(ci.setup, "ci.setup");
+  if (isGitlab) {
+    const lists = { "ci.setup": setup, "ci.checks": checks, "ci.tests": tests, ...(releaseGate ? { "ci.releaseGate.steps": releaseGate.steps } : {}) };
+    for (const [field, list] of Object.entries(lists)) {
+      list.forEach((st, i) => {
+        if (st.uses) fail(`${field}[${i}]`, "GitLab CI runs shell commands: use run, not uses");
+      });
+    }
+  }
+  const image = isGitlab ? (isStr(ci.image) ? ci.image.trim() : "node:24") : undefined;
 
-  const queueMode = oneOf(a.queue?.mode ?? "self", "queue.mode", ["self", "native"]);
+  const queueMode = oneOf(a.queue?.mode ?? "self", "queue.mode", isGitlab ? ["self", "train"] : ["self", "native"]);
+  if (queueMode === "train" && gitlab.tier === "free") fail("queue.mode", "merge trains need GitLab Premium or Ultimate; use \"self\"");
   if (reviewer === "copilot" && forge !== "github") fail("reviewer", "copilot is only available on GitHub");
 
   const loops = { sweep: true, eval: true, metrics: true, ...(a.loops ?? {}) };
@@ -126,6 +150,7 @@ export function validateAnswers(raw) {
   return {
     version: 1,
     forge,
+    ...(gitlab ? { gitlab } : {}),
     language,
     reviewer,
     project: { name: a.project.name.trim(), description: isStr(a.project.description) ? a.project.description.trim() : "" },
@@ -135,7 +160,7 @@ export function validateAnswers(raw) {
     paths: { high, security, lowOnly, ...(sizeExcluded ? { sizeExcluded } : {}) },
     failureModes: strList(a.failureModes ?? [], "failureModes"),
     securityChecklist: strList(a.securityChecklist ?? [], "securityChecklist"),
-    ci: { setup: steps(ci.setup, "ci.setup"), checks, tests, testsRunner, selfHostedLabels, releaseGate },
+    ci: { setup, checks, tests, testsRunner, selfHostedLabels, releaseGate, ...(image ? { image } : {}) },
     queue: { mode: queueMode },
     classifier: a.classifier ?? true,
     loops,

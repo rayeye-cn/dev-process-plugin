@@ -125,6 +125,7 @@ const readLock = (target) => {
  * block every pull request): refused here, at the entry point the skills and the CLI use.
  */
 export const NOT_YET = Object.freeze([
+  { field: "forge", value: "gitlab", why: "the GitLab CI template, protection and setup land later in M5; the engine side is in place" },
   { field: "queue.mode", value: "native", why: "the forge's native merge queue needs merge_group CI and gate support that is not built yet; use \"self\"" },
 ]);
 

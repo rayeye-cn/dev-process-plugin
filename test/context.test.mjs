@@ -47,6 +47,42 @@ describe("answers", () => {
   });
 });
 
+describe("answers: GitLab", () => {
+  const gl = (over = {}) => ({
+    forge: "gitlab",
+    gitlab: { url: "https://gitlab.example.com/", tier: "free" },
+    project: { name: "x" },
+    repo: "grp/sub/app",
+    defaultBranch: "main",
+    people: { trustedAuthors: ["john.doe", "dev_1"] },
+    ci: { tests: [{ run: "npm test" }] },
+    ...over,
+  });
+  it("nested groups, dotted usernames, Claude by default, an image for the jobs, the URL without a trailing slash", () => {
+    const a = validateAnswers(gl());
+    assert.equal(a.forge, "gitlab");
+    assert.deepEqual(a.gitlab, { url: "https://gitlab.example.com", tier: "free" });
+    assert.equal(a.reviewer, "claude");
+    assert.equal(a.repo, "grp/sub/app");
+    assert.equal(a.ci.image, "node:24");
+    assert.equal(a.queue.mode, "self");
+    assert.equal(validateAnswers({ ...gl(), gitlab: { url: "https://gl.x", tier: "premium" }, queue: { mode: "train" } }).queue.mode, "train");
+  });
+  it("refuses Copilot, GitHub actions as steps, merge trains on Free, the native GitHub queue, a bad URL", () => {
+    const bad = (over, re) => assert.throws(() => validateAnswers(gl(over)), (e) => e instanceof AnswersError && re.test(e.message));
+    bad({ reviewer: "copilot" }, /copilot is only available on GitHub/);
+    bad({ ci: { tests: [{ uses: "actions/setup-node@v4" }] } }, /ci\.tests\[0\].*run, not uses/);
+    bad({ queue: { mode: "train" } }, /merge trains need GitLab Premium/);
+    bad({ queue: { mode: "native" } }, /queue\.mode/);
+    bad({ gitlab: { url: "gitlab.example.com" } }, /gitlab\.url/);
+    bad({ repo: "app" }, /group\/…\/name/);
+  });
+  it("is not renderable yet (the CI template comes later in M5)", async () => {
+    const { assertRenderable } = await import("../tools/render.mjs");
+    assert.throws(() => assertRenderable(validateAnswers(gl())), /forge.*gitlab.*not available yet/);
+  });
+});
+
 describe("policy from answers", () => {
   const a = validateAnswers(raw);
   const p = policyFrom(a);
