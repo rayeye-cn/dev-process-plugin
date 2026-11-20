@@ -31,6 +31,32 @@ export function splitProject(full) {
   return { owner: parts.slice(0, -1).join("/"), name: parts.at(-1) };
 }
 
+/**
+ * GitLab runs quick actions (`/merge`, `/approve`, `/close`, `/label …`) found at the start of a line in notes, issue
+ * descriptions and MR descriptions — also when the bot posts them through the API, with the bot's Maintainer rights.
+ * Everything the bot writes may carry text it does not control (Claude's review, a file name with a line break in the
+ * gate's note), so a line that starts with `/` outside a fenced code block gets a zero-width space in front: it reads
+ * the same and is never a command. Applied in this adapter to every note and issue text, so no caller can forget it.
+ */
+export function noQuickActions(text) {
+  let fence = 0;
+  return String(text ?? "")
+    .split("\n")
+    .map((line) => {
+      const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1].length ?? 0;
+      if (fence === 0 && run >= 3) {
+        fence = run;
+        return line;
+      }
+      if (fence > 0) {
+        if (run >= fence && /^ {0,3}(`+|~+)\s*$/.test(line)) fence = 0;
+        return line;
+      }
+      return /^\s*\//.test(line) ? line.replace(/^(\s*)\//, "$1\u200b/") : line;
+    })
+    .join("\n");
+}
+
 /** Our status states → GitLab commit status states. */
 const STATE_OUT = { success: "success", failure: "failed", error: "failed", pending: "pending", running: "running" };
 /** GitLab commit status / job states → GitHub-like `{ state }` (statuses) and `{ status, conclusion }` (check runs). */
@@ -313,7 +339,7 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
     async upsertMarkedComment(iid, marker, body) {
       const notes = await notesOf(iid);
       const mine = notes.find((n) => !n.system && n.author?.username === forge.ciIdentity && n.body?.includes(marker));
-      const text = `${marker}\n${body}`;
+      const text = noQuickActions(`${marker}\n${body}`);
       if (mine) {
         if (mine.body !== text) await rest.put(`${mr(iid)}/notes/${mine.id}`, { body: text });
         return mine.id;
@@ -321,7 +347,43 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
       return (await rest.post(`${mr(iid)}/notes`, { body: text })).id;
     },
 
-    postComment: (iid, body) => rest.post(`${mr(iid)}/notes`, { body }),
+    postComment: (iid, body) => rest.post(`${mr(iid)}/notes`, { body: noQuickActions(body) }),
+
+    /** What a review posts against: the head, the diff refs (diff thread positions need them) and the diffs. */
+    async reviewTarget(iid) {
+      const [m, diffs] = await Promise.all([rest.get(mr(iid)), rest.paginate(`${mr(iid)}/diffs`)]);
+      return { headSha: m.sha, diffRefs: m.diff_refs, diffs };
+    },
+
+    /**
+     * Open a resolvable thread on the MR: on a diff line when `position` is given (`{ new_path, old_path, new_line,
+     * old_line }` + `diffRefs`), else a plain thread. GitLab rejects a position it cannot place (400); the thread is then
+     * opened without one, with `fallbackBody` (which names the place). Returns `{ id, onDiff }`.
+     */
+    async createThread(iid, { body, position = null, diffRefs = null, fallbackBody = body }) {
+      if (position && diffRefs) {
+        try {
+          const d = await rest.post(`${mr(iid)}/discussions`, {
+            body: noQuickActions(body),
+            position: {
+              position_type: "text",
+              base_sha: diffRefs.base_sha,
+              start_sha: diffRefs.start_sha,
+              head_sha: diffRefs.head_sha,
+              new_path: position.new_path,
+              old_path: position.old_path,
+              new_line: position.new_line,
+              ...(position.old_line ? { old_line: position.old_line } : {}),
+            },
+          });
+          return { id: d.id, onDiff: true };
+        } catch (e) {
+          if (e.status !== 400) throw e;
+        }
+      }
+      const d = await rest.post(`${mr(iid)}/discussions`, { body: noQuickActions(fallbackBody) });
+      return { id: d.id, onDiff: false };
+    },
 
     /**
      * Commit status `context` on `sha`. GitLab refuses a transition to the state the status already has ("Cannot
@@ -434,9 +496,9 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
         const found = await rest.get(`${base}/issues?labels=${encodeURIComponent(label)}&state=opened&order_by=created_at&sort=desc&per_page=1`);
         return found?.[0] ? toIssue(found[0]) : null;
       },
-      create: async ({ title, labels = [], body }) => (await rest.post(`${base}/issues`, { title, labels: labels.join(","), description: body })).iid,
-      update: (iid, { body }) => rest.put(`${base}/issues/${iid}`, { description: body }),
-      comment: (iid, body) => rest.post(`${base}/issues/${iid}/notes`, { body }),
+      create: async ({ title, labels = [], body }) => (await rest.post(`${base}/issues`, { title, labels: labels.join(","), description: noQuickActions(body) })).iid,
+      update: (iid, { body }) => rest.put(`${base}/issues/${iid}`, { description: noQuickActions(body) }),
+      comment: (iid, body) => rest.post(`${base}/issues/${iid}/notes`, { body: noQuickActions(body) }),
     },
 
     metrics: {

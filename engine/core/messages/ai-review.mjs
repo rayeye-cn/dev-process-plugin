@@ -3,6 +3,9 @@
  * - aiReview.skip.* / aiReview.run: the job summary when deciding whether to review. Params: `sha`, `eventHead`.
  * - aiReview.notice.*: the notice left on the PR when no review came out (after the notice marker; the gate quotes its
  *   first sentence, so the first sentence must say what happened). Params: `sha`, `outcome`.
+ * - aiReview.gitlab.summary: the summary note the bot posts for Claude on GitLab (the marker line is appended after it).
+ *   Params: `n` (threads opened), `dropped` (findings over the cap), `offDiff` (threads not on a diff line), `risk`,
+ *   `reason`, `unchecked`.
  * - aiReview.prompt: the review prompt. Params: `repo`, `pr`, `sha`, `marker`, `instructions`, `maxComments`,
  *   `replyTags`, `signoff`, `waiver`, `ignore` (a directory of the checkout that is not part of the PR, or "").
  */
@@ -19,6 +22,13 @@ const zh = {
   "aiReview.notice.failed": "AI 评审作业失败了，这个提交没有评审结果。打开作业日志看原因（密钥失效、额度用完、Claude GitHub App 没装等），修好后重跑作业。",
   "aiReview.notice.noSummary": "AI 评审跑完了，但没有发出这个提交的总结评论，门不能算它评审过。重跑 AI 评审作业。",
 
+  "aiReview.gitlab.summary": (p) =>
+    [
+      `Claude 评审：${p.n ? `${p.n} 条意见，每条一个讨论串` : "没有发现问题"}${p.dropped ? `（另有 ${p.dropped} 条超出每次上限，没有发）` : ""}。`,
+      ...(p.offDiff ? [`其中 ${p.offDiff} 条说的位置不在 diff 的改动行上，作为普通讨论串发出，写明了文件与行号。`] : []),
+      `风险：${{ low: "低", medium: "中", high: "高" }[p.risk] ?? p.risk}。${p.reason ?? ""}`,
+      ...(p.unchecked ? [`没能核实：${p.unchecked}`] : []),
+    ].join("\n"),
   "aiReview.prompt": (p) =>
     [
       `你是 ${p.repo} 的 AI 代码评审，正在评审 PR #${p.pr}，head 提交 ${p.sha}。`,
@@ -61,6 +71,13 @@ const en = {
   "aiReview.notice.failed": "The AI review job failed, so this commit has no review. Open the job log for the cause (revoked key, no credits, Claude GitHub App not installed, …), fix it and re-run the job.",
   "aiReview.notice.noSummary": "The AI review finished without posting its summary comment for this commit, so the gate cannot count it. Re-run the AI review job.",
 
+  "aiReview.gitlab.summary": (p) =>
+    [
+      `Claude review: ${p.n ? `${p.n} finding(s), one thread each` : "no issues found"}${p.dropped ? ` (${p.dropped} more over the per-review cap were not posted)` : ""}.`,
+      ...(p.offDiff ? [`${p.offDiff} of them point at lines outside the diff and were posted as plain threads naming the file and line.`] : []),
+      `Risk: ${p.risk}. ${p.reason ?? ""}`.trim(),
+      ...(p.unchecked ? [`Could not check: ${p.unchecked}`] : []),
+    ].join("\n"),
   "aiReview.prompt": (p) =>
     [
       `You are the AI code reviewer of ${p.repo}, reviewing pull request #${p.pr} at head commit ${p.sha}.`,

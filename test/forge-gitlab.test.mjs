@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { evaluate } from "../engine/core/gate.mjs";
-import { approvedOn, createGitlab, diffCounts, splitProject, targetChangedAt, threadsFrom, unifiedDiff } from "../engine/forge/gitlab.mjs";
+import { approvedOn, createGitlab, diffCounts, noQuickActions, splitProject, targetChangedAt, threadsFrom, unifiedDiff } from "../engine/forge/gitlab.mjs";
 import { reviewerOn } from "../engine/reviewer/index.mjs";
 import { claudeMarker, claudeNoticeMarker } from "../engine/reviewer/claude.mjs";
 import { policy } from "./helpers.mjs";
@@ -218,6 +218,18 @@ describe("GitLab adapter", () => {
 });
 
 describe("GitLab writes", () => {
+  it("no quick action survives in what the bot writes: a line starting with / gets a zero-width space, code blocks stay verbatim", async () => {
+    const zw = "\u200b";
+    assert.equal(noQuickActions("ok\n/merge\n  /approve now\nmid /label ~x"), `ok\n${zw}/merge\n  ${zw}/approve now\nmid /label ~x`);
+    assert.equal(noQuickActions("```\n/close\n```\n/after"), `\`\`\`\n/close\n\`\`\`\n${zw}/after`);
+    assert.equal(noQuickActions("~~~~\n/x\n~~~~"), "~~~~\n/x\n~~~~");
+    const fetch = fakeFetch({ [`POST ${P}/merge_requests/7/notes`]: (b) => ({ id: 1, ...b }), [`POST ${P}/issues`]: () => ({ iid: 2 }) });
+    const forge = createGitlab({ env: ENV, fetch });
+    await forge.postComment(7, "found it\n/merge");
+    await forge.issues.create({ title: "t", labels: [], body: "/close" });
+    assert.deepEqual(fetch.calls.map((c) => c.body.body ?? c.body.description), [`found it\n${zw}/merge`, `${zw}/close`]);
+  });
+
   it("setStatus maps states, trims the description, and treats 'cannot transition' (same state) as done", async () => {
     let refuse = false;
     const fetch = fakeFetch({
