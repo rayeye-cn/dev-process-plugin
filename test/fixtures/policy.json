@@ -1,0 +1,15 @@
+{
+  "forge": "github",
+  "language": "zh",
+  "reviewer": "copilot",
+  "trustedAuthors": ["alice", "bob", "carol"],
+  "requiredHumans": { "low": 0, "medium": 1, "high": 2 },
+  "untrustedExtraApprovals": 1,
+  "aiReviewWaiverExtraApprovals": 1,
+  "sizeThresholdLines": 1000,
+  "reviewRoundCap": 3,
+  "highPaths": ["src/update/**", ".github/**", "CLAUDE.md", "package.json", ".dev-process/**"],
+  "securityPaths": ["src/update/**", ".github/**"],
+  "lowOnlyPaths": ["docs/**", "ROADMAP.md"],
+  "sizeExcludedPaths": ["docs/**", "ROADMAP.md", "**/package-lock.json"]
+}
