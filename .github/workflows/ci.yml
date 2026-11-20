@@ -59,4 +59,5 @@ jobs:
           # version does not know yet; ignore exactly that message.
           ./actionlint -color -ignore 'unknown permission scope "copilot-requests"' "$RUNNER_TEMP"/rendered/*/.github/workflows/*.yml
       - name: The GitLab CI files parse as YAML
-        run: ruby -ryaml -e 'ARGV.each { |f| YAML.load_file(f); puts "ok #{f}" }' "$RUNNER_TEMP"/rendered/gitlab-*/.gitlab-ci.yml "$RUNNER_TEMP"/rendered/gitlab-*/.gitlab/*.yml
+        run: |
+          ruby -ryaml -e 'ARGV.each { |f| YAML.load_file(f); puts "ok " + f }' "$RUNNER_TEMP"/rendered/gitlab-*/.gitlab-ci.yml "$RUNNER_TEMP"/rendered/gitlab-*/.gitlab/*.yml
