@@ -38,3 +38,21 @@ jobs:
           node-version: 24
       - run: npm install -g @anthropic-ai/claude-code
       - run: claude plugin validate --strict .
+
+  actionlint:
+    # Lint the workflows the plugin renders (several answer variants), including shellcheck on their run scripts.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Render the workflow templates
+        run: node test/support/render-workflows.mjs "$RUNNER_TEMP/rendered"
+      - name: actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color "$RUNNER_TEMP"/rendered/*/.github/workflows/*.yml
