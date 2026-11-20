@@ -1,0 +1,164 @@
+# CI: the automatic checks that block merging (layer 4 of the review process).
+{{#if ci.hasChecks}}
+# - checks: fast checks on GitHub-hosted runners.
+{{/if}}
+{{#if ci.hasTests}}
+{{#if ci.selfHosted}}
+# - tests: the full tests on self-hosted runners; fork PRs are judged red instead (see the job).
+{{else}}
+# - tests: the full tests on GitHub-hosted runners.
+{{/if}}
+{{/if}}
+{{#if ci.releaseGate}}
+# - {{ ci.releaseGate.name }}: the heavy release gate, only on PRs that change a version field or carry the release label;
+#   on every other PR it is skipped, and a skipped job counts as passing. Merge-queue re-runs decide the same way
+#   (version fields against the base the queue passes in, labels of the PR under test); see
+#   {{ engine }}/cli/detect-release.mjs.
+{{/if}}
+# The job names `{{#each ci.requiredChecks}}{{ this }}{{#unless @last}}`, `{{/unless}}{{/each}}`{{#if ci.releaseGate}} and `{{ ci.releaseGate.name }}`{{/if}} are the check names the branch protection
+# requires: never rename or translate them.
+# This workflow runs the PR's own definition and scripts (pull_request), with a read-only token. A PR could weaken its
+# own CI that way, which is why .github/** and .dev-process/** are high-risk paths that need the most reviewers.
+{{#if queue.self}}
+# The self-built merge queue re-runs this workflow with workflow_dispatch on a temporary branch "latest default branch +
+# PR" (the queue never takes fork PRs) and waits for that run's conclusion.
+{{/if}}
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "{{ s.ciInputPr }}"
+        required: false
+      base:
+        description: "{{ s.ciInputBase }}"
+        required: false
+
+# Nothing at the workflow level; every job asks for what it needs.
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+{{#if ci.hasChecks}}
+  checks:
+    name: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      # No later step needs git credentials: do not leave the token in .git/config.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+{{#if ci.setupYaml}}
+{{ ci.setupYaml }}
+{{/if}}
+{{ ci.checksYaml }}
+{{/if}}
+{{#if ci.hasTests}}
+{{#if ci.hasChecks}}
+
+{{/if}}
+  tests:
+    name: tests
+{{#if ci.selfHosted}}
+    # Self-hosted runners only run code from branches of this repository. A fork PR goes to a GitHub-hosted runner instead
+    # and is judged RED there: a skipped job counts as passing for a required check, so a fork PR must not get through by
+    # being skipped.
+    runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-latest"]' || '{{ ci.testsRunsOn }}') }}
+{{else}}
+    runs-on: {{ ci.testsRunsOn }}
+{{/if}}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+{{#if ci.selfHosted}}
+      - name: {{ s.forkGuard }}
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::{{ s.forkGuardError }}"
+          exit 1
+      # On a self-hosted runner the workspace outlives the job: never leave the token in .git/config.
+{{/if}}
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+{{#if ci.setupYaml}}
+{{ ci.setupYaml }}
+{{/if}}
+{{ ci.testsYaml }}
+{{/if}}
+{{#if ci.releaseGate}}
+
+  detect-release:
+    name: {{ s.detectReleaseJob }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # a merge-queue run reads the labels of the PR it tests
+    outputs:
+      release: ${{ steps.detect.outputs.release }}
+    steps:
+      # Full history: the version fields are compared with the base commit.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      - name: {{ s.detectReleaseStep }}
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          QUEUE_PR: ${{ inputs.pr }}
+          BASE_INPUT: ${{ inputs.base }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node {{ engine }}/cli/detect-release.mjs
+
+  {{ ci.releaseGate.name }}:
+    name: {{ ci.releaseGate.name }}
+{{#if ci.hasTests}}
+    # After the tests: no heavy run for a PR whose tests already fail.
+{{/if}}
+    needs: [detect-release{{#if ci.hasTests}}, tests{{/if}}]
+    # Skipped (which counts as passing) on every PR that is not a release; that is the case skipping is meant for. A
+    # failed need skips it too, but then that need is red: the run fails and the merge queue never merges a failed run.
+    if: needs.detect-release.outputs.release == 'true'
+{{#if ci.releaseGate.selfHosted}}
+    # Same rule as the tests: fork PRs never run on self-hosted runners; they are judged red on a hosted runner instead.
+    runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-latest"]' || '{{ ci.releaseGate.runsOn }}') }}
+{{else}}
+    runs-on: {{ ci.releaseGate.runsOn }}
+{{/if}}
+    timeout-minutes: {{ ci.releaseGate.timeoutMin }}
+    permissions:
+      contents: read
+    steps:
+{{#if ci.releaseGate.selfHosted}}
+      - name: {{ s.forkGuard }}
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::{{ s.forkGuardError }}"
+          exit 1
+{{/if}}
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+{{#if ci.setupYaml}}
+{{ ci.setupYaml }}
+{{/if}}
+{{ ci.releaseGate.stepsYaml }}
+{{/if}}

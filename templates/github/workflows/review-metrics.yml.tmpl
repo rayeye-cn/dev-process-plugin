@@ -1,0 +1,33 @@
+# Weekly review metrics (see {{ engine }}/cli/metrics.mjs and {{ engine }}/core/metrics.mjs for what is measured and
+# why): every Monday morning a report for the last 7 days is appended to the open issue labelled
+# `{{ policy.names.metricsLabel }}`. Read-only on code and PRs; the only write is that issue.
+name: review-metrics
+
+on:
+  schedule:
+    - cron: "0 1 * * 1" # weekly, Monday 01:00 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  report:
+    name: {{ s.metricsJob }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      - name: {{ s.metricsRun }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node {{ engine }}/cli/metrics.mjs --repo "$GITHUB_REPOSITORY" --days 7

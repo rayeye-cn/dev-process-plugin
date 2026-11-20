@@ -1,0 +1,180 @@
+# Risk gate (layer 5 of the review process: the people a change needs follow its risk). The rules are documented in
+# {{ engine }}/core/gate.mjs and {{ engine }}/cli/risk-gate.mjs.
+# The verdict is the commit status `{{ policy.names.gateContext }}` (a required check), so a sign-off comment, an approval
+# or a reply to {{ ai }} can each update it; a check run could only be written by events on the head commit.
+#
+# Security: every trigger runs the workflow definition from the default branch / the base, so a PR cannot change its own
+# gate.
+# - pull_request_target: the workflow file comes from the base branch. The jobs check out only the scripts at the base
+#   sha; they never check out or run the PR branch's code. The PR's content is read only as diff text through the API
+#   (classifier).
+# - issue_comment: always uses the workflow on the default branch.
+# - Review events (pull_request_review*) would run the workflow file from the PR branch, so they are not handled here:
+#   the permission-less risk-gate-events.yml relays them as workflow_run, and workflow_run uses the definition on the
+#   default branch.
+{{#if queue.self}}
+# - workflow_dispatch (on the default branch): the merge queue asks for a re-judge when the stored verdict disagrees with
+#   its own read-only re-judge (people can use it by hand too). After a passing re-judge this workflow wakes the queue
+#   itself: the run the queue requested with GITHUB_TOKEN does not trigger workflow_run when it finishes (events caused by
+#   GITHUB_TOKEN start no new workflow run, except workflow_dispatch), so without the wake-up the queue would wait for its
+#   hourly heartbeat.
+{{else}}
+# - workflow_dispatch (on the default branch): re-judge one PR by hand.
+{{/if}}
+# Only this workflow writes the `{{ policy.names.gateContext }}` status, and the verdicts for one PR run one at a time in
+# the concurrency group below.
+name: risk-gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_run:
+    workflows: [risk-gate-events]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "{{ s.gateInputPr }}"
+        required: true
+
+# Nothing at the workflow level; every job asks for what it needs.
+permissions: {}
+
+# Every event of one PR (the PR itself, comments, relayed reviews, re-judge requests) shares one group and is judged
+# serially; otherwise an older run could write its older verdict after a newer one. Nothing is cancelled: every event
+# must get its verdict.
+# The group must stay on the whole workflow and must not move to the gate job: while the run for a push is between
+# classify and gate, a re-judge triggered by a comment or an approval has to wait behind it. With a job-level group it
+# would get in first and could write a pass before the second opinion on the new commit exists.
+concurrency:
+  group: risk-gate-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.pull_requests[0].number || inputs.pr || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+{{#if classifier}}
+  classify:
+    name: {{ s.classifyJob }}
+    # Second classifier: {{ aiCli.name }} sees only the diff and names a tier; it can raise the tier, never lower it.
+{{#if isCopilot}}
+    # Needs the organization policy that lets Copilot CLI be billed to the organization; without it the AI step fails and
+    # the gate goes by paths as usual.
+{{else}}
+    # Needs the ANTHROPIC_API_KEY repository secret; without it the AI step fails and the gate goes by paths as usual.
+{{/if}}
+    # Set the repository variable RISK_CLASSIFIER=off to switch it off.
+    if: github.event_name == 'pull_request_target' && vars.RISK_CLASSIFIER != 'off'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+{{#if aiCli.permission}}
+      {{ aiCli.permission }}
+{{/if}}
+    outputs:
+      tier: ${{ steps.classify.outputs.tier }}
+      reason: ${{ steps.classify.outputs.reason }}
+      sha: ${{ steps.classify.outputs.sha }}
+    steps:
+      # The base sha, never the PR head: only the base's scripts and configuration run here.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      - name: {{ s.classifyPrompt }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: node {{ engine }}/cli/classify.mjs prompt --repo "$GITHUB_REPOSITORY" --pr "$PR" > "$RUNNER_TEMP/prompt.txt"
+      # The prompt (PR content) reaches the AI CLI from a file, never pasted into the script. A failure here only means
+      # no second opinion. The result is tied to the head sha of this event: the gate uses it only for that head.
+      - name: {{ s.classifyRun }}
+        id: classify
+        continue-on-error: true
+        env:
+          PROMPT_FILE: ${{ runner.temp }}/prompt.txt
+          OUT_FILE: ${{ runner.temp }}/out.txt
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+{{ aiCli.envYaml }}
+        run: |
+          {{ aiCli.install }}
+          {{ aiCli.noTools }}
+          node {{ engine }}/cli/classify.mjs parse --sha "$HEAD_SHA" < "$OUT_FILE"
+
+{{/if}}
+  gate:
+    name: {{ s.gateJob }}
+{{#if classifier}}
+    needs: classify
+{{/if}}
+    # Comments on plain issues and relayed runs of anything but a review event have nothing to judge.
+    if: >-
+{{#if classifier}}
+      always() &&
+{{/if}}
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request) &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request_review' || github.event.workflow_run.event == 'pull_request_review_comment')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      statuses: write
+{{#if queue.self}}
+      actions: write # only for waking the merge queue after a re-judge it requested (workflow_dispatch)
+{{/if}}
+    steps:
+      # The base sha (pull_request_target) or the default branch (every other trigger), never the PR head: the gate's
+      # scripts and the policy it reads come from there.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      - name: {{ s.gateJudge }}
+        id: judge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.pull_requests[0].number || inputs.pr }}
+          # Review events from forks carry no PR number, only the head sha.
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+{{#if classifier}}
+          # The second opinion goes through the environment, never into the shell (the reason may hold text the PR
+          # influenced).
+          CLASSIFIER_TIER: ${{ needs.classify.outputs.tier }}
+          CLASSIFIER_REASON: ${{ needs.classify.outputs.reason }}
+          CLASSIFIER_SHA: ${{ needs.classify.outputs.sha }}
+{{/if}}
+          # When this event IS the change of the target branch, its time: the timeline may not show the change yet, so the
+          # script falls back to it. Reviews, sign-offs and approvals from before the change do not count, and the script
+          # asks {{ ai }} to review again when its review predates the change.
+          BASE_CHANGED_AT: ${{ github.event.changes.base != null && github.event.pull_request.updated_at || '' }}
+        run: |
+          if [ -n "$PR" ]; then
+            node {{ engine }}/cli/risk-gate.mjs --repo "$GITHUB_REPOSITORY" --pr "$PR"
+          else
+            node {{ engine }}/cli/risk-gate.mjs --repo "$GITHUB_REPOSITORY" --head-sha "$HEAD_SHA"
+          fi
+{{#if queue.self}}
+      - name: {{ s.wakeQueue }}
+        # The queue re-judges this PR again; the stored verdict is now fresh, so when they agree it tests and merges.
+        # Without this the queue waits for its next hourly heartbeat.
+        # Only after a PASS: when the gate fails the queue has nothing to do. And when several queued PRs share one commit
+        # (statuses are stored per sha) and each lacks something different, waking the queue on every re-judge would make
+        # the queue and the gate wake each other in a loop.
+        if: github.event_name == 'workflow_dispatch' && steps.judge.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: gh workflow run {{ policy.names.queueWorkflow }} --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH"
+{{/if}}

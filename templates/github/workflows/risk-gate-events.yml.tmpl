@@ -1,0 +1,22 @@
+# Relay: review events (approvals, change requests, {{ ai }} reviews, inline replies) run the workflow file from the PR
+# branch, so this workflow gets NO permissions, uses NO secrets and checks out NO code. It only makes risk-gate.yml re-judge
+# the PR through workflow_run, which runs the definition on the default branch.
+# Even if a PR edits this file, the worst it can do is not trigger a re-judge; it cannot change the verdict.
+name: risk-gate-events
+
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+
+permissions: {}
+
+jobs:
+  relay:
+    name: {{ s.relayJob }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: {{ s.relayStep }}
+        run: echo "{{ s.relayMessage }}"

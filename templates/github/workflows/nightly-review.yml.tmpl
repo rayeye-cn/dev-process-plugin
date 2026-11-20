@@ -1,0 +1,109 @@
+# Nightly sweep (see {{ engine }}/cli/nightly-sweep.mjs): every night {{ aiCli.name }} reads the existing code of one
+# security area (the security paths in turn), read-only, and the findings become issues.
+# - sweep: may only read the code and call the AI. The AI CLI gets read-only tools only, the workspace is made read-only
+#   before it runs, and only its raw output is uploaded.
+# - file: a fresh checkout parses and validates the output (the file exists, the line is in range, the finding is inside
+#   tonight's area), drops duplicates and files the issues. A prompt-injected sweep cannot change the parsing script, and
+#   the job that holds issues: write never runs the AI.
+name: nightly-review
+
+on:
+  schedule:
+    - cron: "0 19 * * *" # daily, 19:00 UTC
+  workflow_dispatch:
+    inputs:
+      area:
+        description: "{{ s.sweepInputArea }}"
+        required: false
+
+permissions: {}
+
+# Dedup before filing is "read the existing issues, then create", not atomic: scheduled and manual runs go one at a time,
+# so the same place is not filed twice.
+concurrency:
+  group: nightly-review
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: {{ s.sweepJob }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+{{#if aiCli.permission}}
+      {{ aiCli.permission }}
+{{/if}}
+    outputs:
+      area: ${{ steps.prompt.outputs.area }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      - name: {{ s.installAiCli }}
+        run: {{ aiCli.install }}
+      # Writes the area it picked to this step's `area` output; the file job validates against the same area.
+      - name: {{ s.sweepPrompt }}
+        id: prompt
+        env:
+          AREA: ${{ inputs.area }}
+        run: |
+          if [ -n "$AREA" ]; then set -- --area "$AREA"; fi
+          node {{ engine }}/cli/nightly-sweep.mjs prompt --cli {{ aiCli.id }} "$@" > "$RUNNER_TEMP/prompt.txt"
+      - name: {{ s.readOnlyWorkspace }}
+        run: chmod -R a-w "$GITHUB_WORKSPACE"
+      # Keep the output only when the AI CLI succeeded: no upload, no issues.
+      - name: {{ s.sweepRun }}
+        env:
+          PROMPT_FILE: ${{ runner.temp }}/prompt.txt
+          OUT_FILE: ${{ runner.temp }}/sweep/out.tmp
+{{ aiCli.envYaml }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/sweep"
+          if {{ aiCli.readOnly }}; then
+            mv "$OUT_FILE" "$RUNNER_TEMP/sweep/out.txt"
+          else
+            echo "::warning::{{ s.sweepFailed }}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-sweep-out
+          path: ${{ runner.temp }}/sweep/out.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+  file:
+    name: {{ s.fileJob }}
+    needs: sweep
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      # No artifact means the AI CLI did not produce output tonight: nothing to file.
+      - uses: actions/download-artifact@v4
+        id: download
+        continue-on-error: true
+        with:
+          name: nightly-sweep-out
+          path: ${{ runner.temp }}/sweep
+      - name: {{ s.fileIssues }}
+        if: steps.download.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AREA: ${{ needs.sweep.outputs.area }}
+        run: |
+          node {{ engine }}/cli/nightly-sweep.mjs parse --area "$AREA" < "$RUNNER_TEMP/sweep/out.txt" > "$RUNNER_TEMP/findings.json"
+          node {{ engine }}/cli/nightly-sweep.mjs file-issues --repo "$GITHUB_REPOSITORY" --area "$AREA" "$RUNNER_TEMP/findings.json"

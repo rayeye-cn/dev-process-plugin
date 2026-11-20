@@ -1,0 +1,139 @@
+# Review eval (see {{ engine }}/cli/review-eval.mjs): replays the bugs of past PRs against the current review
+# instructions. Weekly, and whenever the instructions, the cases or the scoring code change on the default branch: after
+# changing the instructions, check that the score did not drop. Every case runs the AI CLI for minutes, so a daily run
+# gets expensive.
+# The job that runs {{ aiCli.name }} may only read the code and call the AI, allows read-only tools only, works in
+# read-only checkouts and never sees the case ids or the expected answers. Scoring and the report issue happen in
+# another job, on a fresh checkout, that never runs the AI.
+name: review-eval
+
+on:
+  schedule:
+    - cron: "0 18 * * 0" # weekly, Sunday 18:00 UTC
+  push:
+    branches: ["{{ defaultBranch }}"]
+    paths:
+      - "{{ instructionsPath }}"
+      - "{{ securityPath }}"
+      - "{{ policy.paths.evalCases }}"
+      - "{{ engine }}/cli/review-eval.mjs"
+      - "{{ engine }}/core/eval.mjs"
+      - "{{ engine }}/core/findings.mjs"
+      - "{{ engine }}/core/ai-output.mjs"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: review-eval
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: {{ s.evalRunJob }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+{{#if aiCli.permission}}
+      {{ aiCli.permission }}
+{{/if}}
+    steps:
+      # The one checkout that keeps its credentials: the next step needs them to fetch the PR heads (this job's token
+      # only has contents: read), then deletes them before any AI runs.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The base and head of every case must be in the local repository.
+      - name: {{ s.fetchPrHeads }}
+        run: |
+          git fetch --quiet origin "+refs/pull/*/head:refs/remotes/pr/*"
+          git config --local --unset-all "http.$GITHUB_SERVER_URL/.extraheader" || true
+          if git config --get-regexp '^http\..*\.extraheader$' > /dev/null; then
+            echo "::error::{{ s.credentialsLeft }}"
+            exit 1
+          fi
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      - name: {{ s.installAiCli }}
+        run: {{ aiCli.install }}
+      # Keep the answers away from the AI: case ids describe the bug (or say "clean"), the cases file holds the expected
+      # files and lines, and a read-only tool can read any file in the workspace. So all prompts and heads are prepared
+      # first, the cases are deleted from the workspace, and only then does the AI run, case by case. While it runs,
+      # directories, prompts and outputs are named by index only; index -> id lives only in this step's shell array (not on
+      # disk, not in the environment), and the outputs get their ids after every case has run.
+      - name: {{ s.evalRun }}
+        env:
+{{ aiCli.envYaml }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/prompts" "$RUNNER_TEMP/heads" "$RUNNER_TEMP/raw" "$RUNNER_TEMP/wt" "$RUNNER_TEMP/out"
+          list="$(node {{ engine }}/cli/review-eval.mjs list)"
+          mapfile -t cases <<< "$list"
+          ids=()
+          for id in "${cases[@]}"; do
+            [ -n "$id" ] || continue
+            ids+=("$id"); n=${#ids[@]}
+            if ! node {{ engine }}/cli/review-eval.mjs prompt "$id" --cli {{ aiCli.id }} > "$RUNNER_TEMP/prompts/$n.txt" ||
+               ! node {{ engine }}/cli/review-eval.mjs head "$id" > "$RUNNER_TEMP/heads/$n"; then
+              echo "::warning::{{ s.evalNoPrompt }} (#$n)"
+              rm -f "$RUNNER_TEMP/prompts/$n.txt" "$RUNNER_TEMP/heads/$n"
+            fi
+          done
+          rm -rf .dev-process/review-evals "{{ policy.paths.evalCases }}"
+          for n in $(seq 1 ${#ids[@]}); do
+            [ -f "$RUNNER_TEMP/prompts/$n.txt" ] || continue
+            wt="$RUNNER_TEMP/wt/c$n"
+            if ! git worktree add --quiet --detach "$wt" "$(cat "$RUNNER_TEMP/heads/$n")"; then
+              echo "::warning::{{ s.evalNoPrompt }} (#$n)"
+              continue
+            fi
+            chmod -R a-w "$wt"
+            export PROMPT_FILE="$RUNNER_TEMP/prompts/$n.txt" OUT_FILE="$RUNNER_TEMP/raw/$n.tmp"
+            # Keep the output only when the AI CLI succeeded: a case that did not run scores as "no usable output",
+            # not as a missed bug.
+            if (cd "$wt" && {{ aiCli.readOnly }}); then
+              mv "$OUT_FILE" "$RUNNER_TEMP/raw/$n.txt"
+            else
+              echo "::warning::{{ s.evalAiFailed }} (#$n)"
+              rm -f "$OUT_FILE"
+            fi
+            chmod -R u+w "$wt" && git worktree remove --force "$wt"
+          done
+          for n in $(seq 1 ${#ids[@]}); do
+            if [ -f "$RUNNER_TEMP/raw/$n.txt" ]; then mv "$RUNNER_TEMP/raw/$n.txt" "$RUNNER_TEMP/out/${ids[$((n-1))]}.txt"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: review-eval-out
+          path: ${{ runner.temp }}/out
+          retention-days: 30
+
+  report:
+    name: {{ s.evalReportJob }}
+    needs: run
+    # Also after a failed run: scoring names the cases without output and fails the job.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: review-eval-out
+          path: ${{ runner.temp }}/out
+      - name: {{ s.evalScore }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node {{ engine }}/cli/review-eval.mjs score --out-dir "$RUNNER_TEMP/out" --report-issue --repo "$GITHUB_REPOSITORY"

@@ -1,0 +1,62 @@
+# Self-built merge queue (see {{ engine }}/cli/merge-queue.mjs). Add the `{{ policy.names.queueLabel }}` label to a PR to queue it.
+# Triggers: the label; CI finishing (green may make a PR ready, red ejects it); risk-gate finishing successfully (a PR
+# may be ready now); an hourly heartbeat; by hand, and the queue's own follow-up runs.
+# The heartbeat catches changes that start no workflow (a review thread resolved silently, a re-judge triggered by a bot's
+# review that stops at action_required): every queue run re-judges the gate for the PR, so the next heartbeat sees them.
+# Cost: every job is billed at least one minute, so an hourly heartbeat is about 720 billed minutes a month and one every
+# 15 minutes about 2,900; check your plan's included minutes before making it more frequent.
+# One queue run at a time (the concurrency group). Every trigger runs the workflow definition on the default branch:
+# labels arrive through pull_request_target, not pull_request (pull_request runs the workflow file from the PR branch,
+# and a PR could use that to get a write token). Only the default branch's scripts are checked out, never PR code.
+name: merge-queue
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: [ci, risk-gate]
+    types: [completed]
+  schedule:
+    - cron: "17 * * * *" # hourly, off the top of the hour when scheduled runs pile up
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: merge-queue
+  cancel-in-progress: false
+
+jobs:
+  queue:
+    name: {{ s.queueJob }}
+    # Upstream runs that were cancelled or skipped entirely (e.g. a comment on a plain issue) cannot make any PR ready:
+    # start no job (skipped jobs are not billed). A failed risk-gate run (an API error) does not start one either: the
+    # queue would ask it to re-judge, it would fail again, and the two would loop; the next heartbeat retries.
+    if: >-
+      (github.event_name != 'pull_request_target' || github.event.label.name == '{{ policy.names.queueLabel }}') &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' ||
+        (github.event.workflow_run.name == 'ci' && github.event.workflow_run.conclusion == 'failure'))
+    runs-on: ubuntu-latest
+    # One run waits for at most one CI run (the policy's queue.ciTimeoutMin), plus a margin.
+    timeout-minutes: {{ queue.jobTimeoutMin }}
+    permissions:
+      contents: write # the temporary trial branch, and the merge
+      pull-requests: write
+      issues: write
+      statuses: write
+      actions: write # dispatches CI on the trial branch, risk-gate re-judges and its own follow-up runs
+      checks: read
+    steps:
+      # The default branch, never the PR head: the queue's scripts and the policy come from there.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: {{ s.setupNode }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: {{ ci.node }}
+      - name: {{ s.queueRun }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node {{ engine }}/cli/merge-queue.mjs --repo "$GITHUB_REPOSITORY"
