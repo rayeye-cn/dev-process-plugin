@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { evaluate } from "../engine/core/gate.mjs";
-import { approvedOn, createGitlab, diffCounts, noQuickActions, splitProject, targetChangedAt, threadsFrom, unifiedDiff } from "../engine/forge/gitlab.mjs";
+import { apiBase, approvalTime, approvedOn, createGitlab, diffCounts, latestPerName, noQuickActions, runFrom, splitProject, targetChangedAt, threadsFrom, unifiedDiff } from "../engine/forge/gitlab.mjs";
 import { reviewerOn } from "../engine/reviewer/index.mjs";
 import { claudeMarker, claudeNoticeMarker } from "../engine/reviewer/claude.mjs";
 import { policy } from "./helpers.mjs";
@@ -54,7 +54,7 @@ const mrJson = (over = {}) => ({
 
 function mrRoutes({ mr = mrJson(), approvals = [], reviewers = [], notes = [], discussions = [], versions = [], statuses = [], diffs = [] } = {}) {
   return {
-    "GET /user": () => ({ username: BOT }),
+    "GET /user": () => ({ username: BOT, bot: true }),
     [`GET ${P}/merge_requests/7`]: () => mr,
     [`GET ${P}/merge_requests/7/approvals`]: () => ({ approved_by: approvals }),
     [`GET ${P}/merge_requests/7/reviewers`]: () => reviewers,
@@ -97,14 +97,48 @@ describe("GitLab helpers", () => {
     assert.equal(targetChangedAt([]), null);
   });
 
-  it("threads: resolvable discussions only; a DiffNote on an older head whose file left the diff is outdated", () => {
+  it("threads: resolvable discussions only; outdated exactly when GitLab left the position on an older diff version", () => {
     const isBotLogin = (l) => l === BOT;
-    const diffNote = (path, head) => ({ id: "d1", individual_note: false, notes: [{ author: { username: BOT }, body: "bug", resolvable: true, resolved: false, position: { new_path: path, new_line: 3, head_sha: head } }, { author: { username: "alice" }, body: "wrong: no", resolvable: true, resolved: false }] });
+    const refs = { base_sha: "1".repeat(40), start_sha: "1".repeat(40), head_sha: HEAD };
+    const diffNote = (path, pos) => ({ id: "d1", individual_note: false, notes: [{ author: { username: BOT }, body: "bug", resolvable: true, resolved: false, position: { new_path: path, new_line: 3, ...pos } }, { author: { username: "alice" }, body: "wrong: no", resolvable: true, resolved: false }] });
     const single = { id: "d2", individual_note: true, notes: [{ author: { username: "alice" }, body: "hi", resolvable: false }] };
-    const out = threadsFrom([diffNote("src/a.js", HEAD), diffNote("src/gone.js", OLDHEAD), single], { headSha: HEAD, changedPaths: new Set(["src/a.js"]), isBotLogin });
-    assert.equal(out.length, 2);
-    assert.deepEqual(out.map((t) => [t.path, t.line, t.isOutdated, t.isResolved]), [["src/a.js", 3, false, false], ["src/gone.js", 3, true, false]]);
+    const plain = { id: "d3", individual_note: false, notes: [{ author: { username: BOT }, body: "elsewhere", resolvable: true, resolved: true }] };
+    const out = threadsFrom([diffNote("src/a.js", refs), diffNote("src/b.js", { ...refs, head_sha: OLDHEAD }), single, plain], { diffRefs: refs, isBotLogin });
+    assert.deepEqual(out.map((t) => [t.path, t.isOutdated, t.isResolved]), [["src/a.js", false, false], ["src/b.js", true, false], [null, false, true]]);
     assert.deepEqual(out[0].comments.map((c) => [c.login, c.type]), [[BOT, "Bot"], ["alice", "User"]]);
+  });
+
+  it("before GitLab 18.4 an approval has no time: the user's 'approved this merge request' note gives it", () => {
+    const notes = [
+      { system: true, author: { username: "bob" }, body: "approved this merge request", created_at: "2026-11-20T10:30:00Z" },
+      { system: true, author: { username: "bob" }, body: "unapproved this merge request", created_at: "2026-11-20T11:00:00Z" },
+      { system: true, author: { username: "bob" }, body: "approved this merge request", created_at: "2026-11-20T12:30:00Z" },
+      { system: false, author: { username: "carol" }, body: "approved this merge request", created_at: "2026-11-20T12:40:00Z" },
+    ];
+    assert.equal(approvalTime({ user: { username: "bob" } }, notes), "2026-11-20T12:30:00Z");
+    assert.equal(approvalTime({ user: { username: "carol" } }, notes), null, "a comment saying it is not an approval");
+    assert.equal(approvalTime({ user: { username: "bob" }, approved_at: "2026-11-20T09:00:00Z" }, notes), "2026-11-20T09:00:00Z");
+  });
+
+  it("CI verdicts come from builds: a status named like a failed job cannot hide it; a running pipeline runs", () => {
+    const builds = [
+      { id: 1, name: "tests", status: "failed" },
+      { id: 2, name: "checks", status: "success" },
+      { id: 5, name: "tests", status: "success" }, // a real retry
+    ];
+    assert.deepEqual(latestPerName(builds).map((b) => [b.name, b.status]), [["tests", "success"], ["checks", "success"]]);
+    // A forged status retires the failed build; the build list still shows it as the newest build of that name.
+    const retired = [{ id: 1, name: "tests", status: "failed", retried: true }, { id: 2, name: "checks", status: "success" }];
+    assert.equal(runFrom({ id: 9, status: "success", web_url: "u" }, latestPerName(retired)).conclusion, "failure");
+    assert.equal(runFrom({ id: 9, status: "running" }, []).status, "in_progress");
+    assert.equal(runFrom({ id: 9, status: "success" }, []).conclusion, "failure", "nothing was tested");
+    assert.equal(runFrom({ id: 9, status: "failed" }, [{ id: 1, name: "lint", status: "failed", allow_failure: true }, { id: 2, name: "tests", status: "success" }]).conclusion, "success");
+  });
+
+  it("the token goes only to the configured GitLab: a pipeline cannot point CI_API_V4_URL elsewhere", () => {
+    assert.equal(apiBase("https://gl.example/", { CI_API_V4_URL: "https://gl.example/api/v4" }), "https://gl.example/api/v4");
+    assert.throws(() => apiBase("https://gl.example", { CI_API_V4_URL: "https://evil.example/api/v4" }), /refusing to send the token/);
+    assert.equal(apiBase(null, { GITLAB_API_URL: "https://x/api/v4/" }), "https://x/api/v4");
   });
 });
 
@@ -200,6 +234,14 @@ describe("GitLab adapter", () => {
     assert.equal(r.ok, true, JSON.stringify(r.missing));
     assert.deepEqual(r.staleApprovers, ["carol"], "approved before the latest push");
 
+    // GitLab 17.11–18.3: no approved_at; the approval's system note after the latest push makes it count on the head.
+    const old = await createGitlab({
+      env: ENV,
+      fetch: fakeFetch(mrRoutes({ versions, notes: [...notes, { id: 6, system: true, body: "approved this merge request", created_at: "2026-11-20T12:45:00Z", author: { username: "carol" } }], approvals: [{ user: { username: "carol" } }], diffs: [{ old_path: "src/a.js", new_path: "src/a.js", diff: "+x\n" }] })),
+    }).ready();
+    const r3 = evaluate({ policy: pol, reviewer: reviewerOn(pol, old), ...(await old.loadChange(7)), writers: new Set(["carol"]), pr: "MR" });
+    assert.deepEqual([r3.approvers, r3.staleApprovers], [["carol"], []]);
+
     // A notice from the bot is not a review.
     const n = await createGitlab({ env: ENV, fetch: fakeFetch(mrRoutes({ versions, notes: [{ id: 5, system: false, body: `${claudeNoticeMarker(HEAD)}\nno key`, created_at: "2026-11-20T12:35:00Z", author: { username: BOT } }] })) }).ready();
     const r2 = evaluate({ policy: pol, reviewer: reviewerOn(pol, n), ...(await n.loadChange(7)), writers: new Set(), pr: "MR" });
@@ -230,17 +272,21 @@ describe("GitLab writes", () => {
     assert.deepEqual(fetch.calls.map((c) => c.body.body ?? c.body.description), [`found it\n${zw}/merge`, `${zw}/close`]);
   });
 
-  it("setStatus maps states, trims the description, and treats 'cannot transition' (same state) as done", async () => {
+  it("setStatus: attached to the source branch (never the MR pipeline), states mapped, description trimmed, 'cannot transition' is done", async () => {
     let refuse = false;
     const fetch = fakeFetch({
+      [`GET ${P}/repository/commits/${HEAD}/merge_requests`]: () => [{ iid: 7, sha: HEAD, state: "opened", source_branch: "feat/x" }],
       [`POST ${P}/statuses/${HEAD}`]: () => (refuse ? { status: 400, body: { message: "Cannot transition status via :enqueue from :pending (Reason(s): Status cannot transition via \"enqueue\")" } } : { id: 1 }),
     });
     const forge = createGitlab({ env: ENV, fetch });
     await forge.setStatus(HEAD, "risk-gate", "failure", "x".repeat(400), "https://u");
-    assert.deepEqual(fetch.calls[0].body, { state: "failed", name: "risk-gate", description: "x".repeat(250), target_url: "https://u" });
+    const post = fetch.calls.find((c) => c.key.startsWith("POST"));
+    assert.deepEqual(post.body, { state: "failed", name: "risk-gate", ref: "feat/x", description: "x".repeat(250), target_url: "https://u" });
+    await forge.setStatus(HEAD, "risk-gate", "success", "ok");
+    assert.equal(fetch.calls.filter((c) => c.key.includes("/merge_requests")).length, 1, "the branch is remembered");
     refuse = true;
     await forge.setStatus(HEAD, "risk-gate", "pending", "again");
-    const other = createGitlab({ env: ENV, fetch: fakeFetch({ [`POST ${P}/statuses/${HEAD}`]: () => ({ status: 403, body: { message: "403 Forbidden" } }) }) });
+    const other = createGitlab({ env: ENV, fetch: fakeFetch({ [`GET ${P}/repository/commits/${HEAD}/merge_requests`]: () => [], [`POST ${P}/statuses/${HEAD}`]: () => ({ status: 403, body: { message: "403 Forbidden" } }) }) });
     await assert.rejects(other.setStatus(HEAD, "risk-gate", "success", "d"), /403/);
   });
 
@@ -311,8 +357,6 @@ describe("GitLab merge queue (mode self)", async () => {
       list.push({ id: nextId++, name, status, description, author: { username: author }, created_at: new Date(2026, 10, 20, 12, nextId).toISOString() });
       statuses.set(sha, list);
     };
-    addStatus(HEAD, "checks", "success");
-    addStatus(HEAD, "tests", "success");
     const mrBody = mrJson({ labels: ["merge-queue"], has_conflicts: false });
     const routes = mrRoutes({
       mr: mrBody,
@@ -338,7 +382,10 @@ describe("GitLab merge queue (mode self)", async () => {
         if (moved && b.ref !== "main") branches.set("main", "f".repeat(40));
         return { id: 55, sha: b.ref === "main" ? branches.get("main") : MERGEREF, status: "created", web_url: "https://gl/p/55" };
       },
-      [`GET ${P}/pipelines/55`]: () => ({ id: 55, status: ci, web_url: "https://gl/p/55" }),
+      [`GET ${P}/pipelines`]: (_, u) => (u.searchParams.get("sha") === HEAD ? [{ id: 41, source: "push" }, { id: 40, source: "merge_request_event" }] : []),
+      [`GET ${P}/pipelines/40/jobs`]: () => [{ id: 1, name: "checks", status: "success" }, { id: 2, name: "tests", status: "success" }],
+      [`GET ${P}/pipelines/55`]: () => ({ id: 55, status: ci === "success" ? "success" : "failed", web_url: "https://gl/p/55" }),
+      [`GET ${P}/pipelines/55/jobs`]: () => [{ id: 7, name: "tests", status: ci }],
       [`PUT ${P}/merge_requests/7/merge`]: () => ({ merge_commit_sha: MERGED, state: "merged" }),
       [`PUT ${P}/merge_requests/7`]: (b) => b,
       [`POST ${P}/merge_requests/7/notes`]: (b) => ({ id: 9, ...b }),

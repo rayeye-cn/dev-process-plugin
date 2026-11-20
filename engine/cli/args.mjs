@@ -25,10 +25,12 @@ export function parseArgs(argv) {
 
 /**
  * Repository root: `DEV_PROCESS_ROOT`, else three levels above the engine CLI
- * (`<root>/.dev-process/engine/cli/x.mjs`).
+ * (`<root>/.dev-process/engine/cli/x.mjs`). Not in GitLab CI: pipeline variables can override any variable, and the root
+ * decides which configuration (and so which gate) the bot's jobs use.
  */
 export function repoRoot(env = process.env, cliUrl = import.meta.url) {
-  return env.DEV_PROCESS_ROOT ? resolve(env.DEV_PROCESS_ROOT) : resolve(fileURLToPath(cliUrl), "..", "..", "..", "..");
+  const here = resolve(fileURLToPath(cliUrl), "..", "..", "..", "..");
+  return env.DEV_PROCESS_ROOT && env.GITLAB_CI !== "true" ? resolve(env.DEV_PROCESS_ROOT) : here;
 }
 
 /** `owner/name` from a github.com remote URL (https, ssh, scp-like), or null. */

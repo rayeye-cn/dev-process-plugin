@@ -61,11 +61,34 @@ export function noQuickActions(text) {
 const STATE_OUT = { success: "success", failure: "failed", error: "failed", pending: "pending", running: "running" };
 /** GitLab commit status / job states → GitHub-like `{ state }` (statuses) and `{ status, conclusion }` (check runs). */
 const STATE_IN = { success: "success", failed: "failure", canceled: "error", pending: "pending", running: "pending", created: "pending", manual: "pending", skipped: "success" };
-const asCheckRun = (s) => {
-  const done = ["success", "failed", "canceled", "skipped"].includes(s.status);
-  const conclusion = { success: "success", failed: "failure", canceled: "cancelled", skipped: "skipped" }[s.status] ?? null;
-  return { name: s.name, id: s.id, status: done ? "completed" : "in_progress", conclusion: done ? conclusion : null };
+/** A build as a check run. A manual job that was never started counts as skipped (it would never finish). */
+const asCheckRun = (b) => {
+  const conclusion = { success: "success", failed: "failure", canceled: "cancelled", skipped: "skipped", manual: "skipped" }[b.status] ?? null;
+  return { name: b.name, id: b.id, status: conclusion ? "completed" : "in_progress", conclusion };
 };
+
+/** The newest build per name. */
+export function latestPerName(builds) {
+  const by = new Map();
+  for (const b of builds ?? []) if (!by.has(b.name) || b.id > by.get(b.name).id) by.set(b.name, b);
+  return [...by.values()];
+}
+
+const FINISHED = new Set(["success", "failed", "canceled", "skipped"]);
+
+/**
+ * A pipeline as the queue's CI run. While GitLab says it runs, it runs; once finished, the verdict comes from its builds
+ * (the pipeline's own status counts commit statuses, which anyone with Developer can post): a failed build that may not
+ * fail ⇒ failure, a cancelled one ⇒ cancelled, no builds ⇒ failure (nothing was tested).
+ */
+export function runFrom(p, builds) {
+  if (!p) return null;
+  if (!FINISHED.has(p.status)) return { id: p.id, status: "in_progress", conclusion: null, url: p.web_url };
+  const failed = builds.some((b) => b.status === "failed" && !b.allow_failure);
+  const cancelled = builds.some((b) => b.status === "canceled");
+  const conclusion = !builds.length || failed ? "failure" : cancelled ? "cancelled" : "success";
+  return { id: p.id, status: "completed", conclusion, url: p.web_url };
+}
 
 /** Lines added / removed in one file's unified diff (GitLab gives no counts). */
 export function diffCounts(diff) {
@@ -97,6 +120,17 @@ export function approvedOn(approvedAt, versions) {
 }
 
 /**
+ * When an approval was given: `approved_at` (GitLab 18.4+), else the time of that user's latest "approved this merge
+ * request" system note (17.11–18.3 return only the user). Neither ⇒ null.
+ */
+export function approvalTime(approval, notes) {
+  if (approval?.approved_at) return approval.approved_at;
+  const login = approval?.user?.username;
+  const mine = notes.filter((n) => n.system && n.author?.username === login && /^approved this merge request/i.test(String(n.body ?? "")));
+  return latestTime(...mine.map((n) => n.created_at));
+}
+
+/**
  * When the target branch last changed: GitLab records it as a system note ("changed target branch from `a` to `b`").
  * The newest such note's time, or null.
  */
@@ -107,23 +141,22 @@ export function targetChangedAt(notes) {
 
 /**
  * Review threads from discussions: threads that can be resolved (a DiffNote or a started thread), not single notes.
- * `isOutdated`: a DiffNote whose position is not on the latest diff version and whose line GitLab no longer maps
- * (`position.line_range` gone and `resolvable` kept) — approximated by "posted on another head and the note says so" is
- * not available, so: a DiffNote on an older head whose file is no longer in the diff counts as outdated.
+ * `isOutdated` follows GitLab's own rule: when a new diff version comes in, GitLab moves a DiffNote's position to it if
+ * its line did not change, and leaves it on the old version if it did — so a position whose base / start / head shas
+ * are not the MR's current `diff_refs` is on a line that changed since.
  */
-export function threadsFrom(discussions, { headSha, changedPaths, isBotLogin }) {
+export function threadsFrom(discussions, { diffRefs, isBotLogin }) {
   const out = [];
   for (const d of discussions) {
     const notes = (d.notes ?? []).filter((n) => !n.system);
     const first = notes[0];
     if (!first || d.individual_note || !first.resolvable) continue;
     const pos = first.position ?? null;
-    const path = pos?.new_path ?? pos?.old_path ?? null;
-    const outdated = Boolean(pos && pos.head_sha && pos.head_sha !== headSha && path && !changedPaths.has(path));
+    const outdated = Boolean(pos && diffRefs && (pos.base_sha !== diffRefs.base_sha || pos.start_sha !== diffRefs.start_sha || pos.head_sha !== diffRefs.head_sha));
     out.push({
       isResolved: notes.every((n) => !n.resolvable || n.resolved),
       isOutdated: outdated,
-      path,
+      path: pos?.new_path ?? pos?.old_path ?? null,
       line: pos?.new_line ?? pos?.old_line ?? null,
       comments: notes.map((n) => ({ login: n.author?.username, type: isBotLogin(n.author?.username) ? "Bot" : "User", body: n.body, url: null })),
     });
@@ -165,11 +198,12 @@ const created = new WeakMap();
 
 export const gitlabQueueOps = Object.freeze({
   defaultBranch: (forge) => forge.defaultBranch(),
-  openChanges: async (forge, branch) => (await forge.rest.paginate(`${projectPath(forge)}/merge_requests?state=opened&target_branch=${encodeURIComponent(branch)}`)).map(normalizeMr),
-  getChange: async (forge, iid) => normalizeMr(await forge.rest.get(mrPath(forge, iid))),
+  openChanges: async (forge, branch) => (await forge.rest.paginate(`${projectPath(forge)}/merge_requests?state=opened&target_branch=${encodeURIComponent(branch)}`)).map((m) => normalizeMr(forge.remember?.(m) ?? m)),
+  getChange: async (forge, iid) => normalizeMr(forge.remember?.(await forge.rest.get(mrPath(forge, iid))) ?? (await forge.rest.get(mrPath(forge, iid)))),
   /** CI jobs and other statuses on a commit, as check runs (the highest id per name is the latest). */
   checkRuns: (forge, sha) => forge.checkRuns(sha),
-  latestStatus: async (forge, sha, context) => (await forge.statusesOf(sha)).find((s) => s.context === context) ?? null,
+  /** The queue's own status (the attempt counter): only the bot's counts, anyone else can post one. */
+  latestStatus: async (forge, sha, context) => (await forge.statusesOf(sha)).find((s) => s.context === context && s.creator?.login === forge.ciIdentity) ?? null,
   removeLabel: (forge, iid, label) => forge.rest.put(mrPath(forge, iid), { remove_labels: label }),
   branchSha: async (forge, branch) => (await forge.rest.get(branchPath(forge, branch))).commit.id,
   createBranch: (forge, branch, sha) => forge.rest.post(`${projectPath(forge)}/repository/branches?branch=${encodeURIComponent(branch)}&ref=${sha}`),
@@ -179,6 +213,7 @@ export const gitlabQueueOps = Object.freeze({
    * (`refs/merge-requests/:iid/merge`, refreshed by `GET …/merge_ref`); the branch is re-created at that commit. The
    * merge must sit on the commit the branch was created at (`base`); if the target branch moved in between, the merge is
    * computed once more, then this run gives up (the next run re-tests). A merge GitLab cannot compute ⇒ null (conflict).
+   * Unverified until M6: the response field (`commit_id`) and the parent order (target first, then the MR head).
    */
   async mergeIntoBranch(forge, branch, head, _message, { number, base } = {}) {
     if (!number || !base) throw new Error("gitlab mergeIntoBranch needs the merge request number and the base commit");
@@ -214,7 +249,7 @@ export const gitlabQueueOps = Object.freeze({
   },
   /** The pipeline dispatchWorkflow created on `branch` for `sha` (GitLab returns it from the create call). */
   findDispatchedRun: async (forge, _workflow, branch, sha) => normalizePipeline(created.get(forge)?.get(`${branch}@${sha}`) ?? null),
-  getRun: async (forge, id) => normalizePipeline(await forge.rest.get(`${projectPath(forge)}/pipelines/${id}`)),
+  getRun: (forge, id) => forge.pipelineRun(id),
   /**
    * Merge at exactly `sha` (GitLab refuses when the head moved). `method`: "merge" (the project's merge method) or
    * "squash". Title and message become the merge commit message.
@@ -234,9 +269,24 @@ export const gitlabQueueOps = Object.freeze({
   parentOf: async (forge, sha) => (await forge.rest.get(`${projectPath(forge)}/repository/commits/${sha}`)).parent_ids?.[0] ?? null,
 });
 
+/**
+ * The API base the token is sent to. The policy's `gitlab.url` (on the default branch, reviewed) decides; CI_API_V4_URL
+ * must agree with it, because pipeline variables can override predefined ones and the token must never go to a host
+ * someone typed into "Run pipeline". Without a policy URL (tests, ad-hoc runs): CI_API_V4_URL, then GITLAB_API_URL.
+ */
+export function apiBase(url, env) {
+  const fromPolicy = url ? `${String(url).replace(/\/+$/, "")}/api/v4` : "";
+  const fromCi = String(env.CI_API_V4_URL ?? "").replace(/\/+$/, "");
+  if (fromPolicy && fromCi && new URL(fromCi).origin !== new URL(fromPolicy).origin) {
+    throw new Error(`CI_API_V4_URL (${new URL(fromCi).origin}) is not the configured GitLab (${new URL(fromPolicy).origin}); refusing to send the token there`);
+  }
+  const api = fromPolicy || fromCi || String(env.GITLAB_API_URL ?? "").replace(/\/+$/, "");
+  if (!api) throw new Error("GitLab API URL unknown: set gitlab.url in the configuration (or CI_API_V4_URL / GITLAB_API_URL)");
+  return api;
+}
+
 export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = globalThis.fetch } = {}) {
-  const API = (env.CI_API_V4_URL || env.GITLAB_API_URL || (url ? `${String(url).replace(/\/+$/, "")}/api/v4` : "")).replace(/\/+$/, "");
-  if (!API) throw new Error("GitLab API URL unknown: set CI_API_V4_URL / GITLAB_API_URL or gitlab.url in the configuration");
+  const API = apiBase(url, env);
   const full = repo ?? env.CI_PROJECT_PATH;
   const { owner, name } = splitProject(full);
   const base = `/projects/${encodeURIComponent(`${owner}/${name}`)}`;
@@ -301,12 +351,29 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
   /** Statuses of a commit, newest first (GitLab lists them oldest first; the gate reads the first match). */
   const commitStatuses = async (sha) => (await rest.paginate(`${base}/repository/commits/${sha}/statuses`)).sort((a, b) => b.id - a.id);
   const notesOf = (iid) => rest.paginate(`${mr(iid)}/notes?sort=asc&order_by=created_at`);
+  /** Source branch per head sha, from every MR this adapter read (statuses are attached by it, see setStatus). */
+  const refOf = new Map();
+  const remember = (m) => {
+    if (m?.sha && m?.source_branch) refOf.set(m.sha, m.source_branch);
+    return m;
+  };
+  async function statusRef(sha) {
+    if (!refOf.has(sha)) {
+      const mrs = await rest.get(`${base}/repository/commits/${sha}/merge_requests`).catch(() => []);
+      remember((mrs ?? []).find((m) => m.sha === sha && m.state === "opened") ?? (mrs ?? []).find((m) => m.sha === sha));
+    }
+    return refOf.get(sha) ?? null;
+  }
+  /** The newest build per name (retried ones included, so nothing can hide a failed build). */
+  const pipelineBuilds = async (id) => latestPerName(await rest.paginate(`${base}/pipelines/${id}/jobs?include_retried=true`));
 
   const forge = {
     id: "gitlab",
     prTerm: "MR",
-    /** The bot's username; `ready()` fills it from the token (`GET /user`). */
-    ciIdentity: env.DEV_PROCESS_BOT || null,
+    /** The bot's username, from the token (`ready()`): never from a variable, which a pipeline could override. */
+    ciIdentity: null,
+    /** Whether the token belongs to a bot user (project / group access token), from `ready()`. */
+    tokenIsBot: null,
     repo: `${owner}/${name}`,
     owner,
     name,
@@ -314,7 +381,11 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
 
     /** Look the bot up once (the token decides who writes; statuses and notes are trusted only from it). */
     async ready() {
-      if (!forge.ciIdentity) forge.ciIdentity = (await rest.get("/user")).username;
+      if (!forge.ciIdentity) {
+        const me = await rest.get("/user");
+        forge.ciIdentity = me.username;
+        forge.tokenIsBot = Boolean(me.bot);
+      }
       return forge;
     },
 
@@ -386,14 +457,19 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
     },
 
     /**
-     * Commit status `context` on `sha`. GitLab refuses a transition to the state the status already has ("Cannot
-     * transition status via …"); that is the wanted state already, so it is not an error.
+     * Commit status `context` on `sha`, attached by `ref` to the MR's SOURCE BRANCH, never to the merge request
+     * pipeline: GitLab judges merges by the MR pipeline, so a status there would make it pending / failed while the gate
+     * or the queue works (merges refused, and each pipeline change a webhook event that re-runs us). On GitLab these
+     * statuses inform; enforcement is "only the bot merges" (and approval rules from Premium). GitLab refuses a
+     * transition to the state the status already has ("Cannot transition status via …"): already done, not an error.
      */
     async setStatus(sha, context, state, description, targetUrl) {
+      const ref = await statusRef(sha);
       try {
         await rest.post(`${base}/statuses/${sha}`, {
           state: STATE_OUT[state] ?? "failed",
           name: context,
+          ...(ref ? { ref } : {}),
           description: [...String(description)].slice(0, 250).join(""),
           ...(targetUrl ? { target_url: targetUrl } : {}),
         });
@@ -417,7 +493,9 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
       await rest.put(mr(iid), { add_labels: want, ...(remove.length ? { remove_labels: remove.join(",") } : {}) });
     },
 
-    headOf: async (iid) => (await rest.get(mr(iid))).sha,
+    headOf: async (iid) => remember(await rest.get(mr(iid))).sha,
+    /** Record an MR's head → source branch (the queue's reads go through plain functions). */
+    remember,
 
     async requestedReviewers(iid) {
       return ((await rest.get(mr(iid))).reviewers ?? []).map((u) => u.username);
@@ -437,8 +515,8 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
     },
 
     async loadReviewThreads(iid) {
-      const [m, discussions, diffs] = await Promise.all([rest.get(mr(iid)), rest.paginate(`${mr(iid)}/discussions`), rest.paginate(`${mr(iid)}/diffs`)]);
-      return threadsFrom(discussions, { headSha: m.sha, changedPaths: changedPaths(diffs), isBotLogin });
+      const [m, discussions] = await Promise.all([rest.get(mr(iid)), rest.paginate(`${mr(iid)}/discussions`)]);
+      return threadsFrom(discussions, { diffRefs: m.diff_refs, isBotLogin });
     },
 
     /**
@@ -446,7 +524,7 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
      * target-change time.
      */
     async loadChange(iid, { baseHint = null } = {}) {
-      const m = await rest.get(mr(iid));
+      const m = remember(await rest.get(mr(iid)));
       const [diffs, approvals, reviewers, notes, discussions, versions, statuses] = await Promise.all([
         rest.paginate(`${mr(iid)}/diffs`),
         rest.get(`${mr(iid)}/approvals`).catch((e) => (e.status === 404 || e.status === 403 ? { approved_by: [] } : Promise.reject(e))),
@@ -461,8 +539,8 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
           login: a.user?.username,
           type: isBotLogin(a.user?.username) ? "Bot" : "User",
           state: "APPROVED",
-          commitId: approvedOn(a.approved_at, versions),
-          submittedAt: a.approved_at ?? null,
+          commitId: approvedOn(approvalTime(a, notes), versions),
+          submittedAt: approvalTime(a, notes),
           association: "MEMBER",
           body: "",
         })),
@@ -482,7 +560,7 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
         files: diffs.map((d) => ({ filename: d.new_path, ...(d.renamed_file ? { previous_filename: d.old_path } : {}), ...diffCounts(d.diff) })),
         reviews,
         comments: notes.filter((n) => !n.system).map(toComment),
-        threads: threadsFrom(discussions, { headSha: m.sha, changedPaths: changedPaths(diffs), isBotLogin }),
+        threads: threadsFrom(discussions, { diffRefs: m.diff_refs, isBotLogin }),
         statuses: statuses.map(toStatus),
         baseChangedAt: latestTime(targetChangedAt(notes), baseHint),
         raw: m,
@@ -520,14 +598,13 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
         (await rest.paginate(`${base}/repository/commits?ref_name=${encodeURIComponent(branch)}&since=${since.toISOString()}`)).map((c) => ({ sha: c.id, message: c.message ?? "" })),
       async load(change, mergeMessages) {
         const iid = change.number;
-        const [approvals, notes, discussions, versions, diffs] = await Promise.all([
+        const [m, approvals, notes, discussions, versions] = await Promise.all([
+          rest.get(mr(iid)),
           rest.get(`${mr(iid)}/approvals`).catch(() => ({ approved_by: [] })),
           notesOf(iid),
           rest.paginate(`${mr(iid)}/discussions`),
           rest.paginate(`${mr(iid)}/versions`),
-          rest.paginate(`${mr(iid)}/diffs`),
         ]);
-        const head = versions.slice().sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0]?.head_commit_sha ?? null;
         let mergeMessage = "";
         if (change.mergeSha) mergeMessage = mergeMessages.get(change.mergeSha) ?? (await rest.get(`${base}/repository/commits/${change.mergeSha}`)).message ?? "";
         return {
@@ -536,18 +613,31 @@ export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = 
           createdAt: change.createdAt,
           mergedAt: change.mergedAt,
           labels: change.labels,
-          reviews: (approvals.approved_by ?? []).map((a) => ({ login: a.user?.username, type: isBotLogin(a.user?.username) ? "Bot" : "User", state: "APPROVED", submittedAt: a.approved_at ?? null, body: "", commitId: approvedOn(a.approved_at, versions) })),
+          reviews: (approvals.approved_by ?? []).map((a) => ({ login: a.user?.username, type: isBotLogin(a.user?.username) ? "Bot" : "User", state: "APPROVED", submittedAt: approvalTime(a, notes), body: "", commitId: approvedOn(approvalTime(a, notes), versions) })),
           comments: notes.filter((n) => !n.system).map(toComment),
-          threads: threadsFrom(discussions, { headSha: head, changedPaths: changedPaths(diffs), isBotLogin }),
+          threads: threadsFrom(discussions, { diffRefs: m.diff_refs, isBotLogin }),
         };
       },
     },
 
-    /** Commit statuses (CI jobs included) of a commit as check runs / statuses, newest first. */
-    checkRuns: async (sha) => (await commitStatuses(sha)).map(asCheckRun),
+    /**
+     * The CI jobs of a commit as check runs: the builds of its merge request pipeline (GitLab judges merges by that
+     * one), else of its newest pipeline. Builds only, never commit statuses: any Developer can post a status, and a
+     * status named like a job retires that job. Retried builds are read too and the newest build per name counts, so a
+     * status cannot hide a failed build.
+     */
+    async checkRuns(sha) {
+      const pipelines = await rest.get(`${base}/pipelines?sha=${sha}&order_by=id&sort=desc&per_page=20`);
+      const p = (pipelines ?? []).find((x) => x.source === "merge_request_event") ?? pipelines?.[0];
+      return p ? (await pipelineBuilds(p.id)).map(asCheckRun) : [];
+    },
+    /** One pipeline as a CI run, its verdict taken from its builds (see checkRuns). */
+    async pipelineRun(id) {
+      const [p, builds] = await Promise.all([rest.get(`${base}/pipelines/${id}`), pipelineBuilds(id)]);
+      return runFrom(p, builds);
+    },
     statusesOf: async (sha) => (await commitStatuses(sha)).map(toStatus),
   };
   return forge;
 }
 
-const changedPaths = (diffs) => new Set(diffs.flatMap((d) => [d.new_path, d.old_path].filter(Boolean)));

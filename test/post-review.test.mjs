@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { postReview } from "../engine/cli/post-review.mjs";
-import { diffLines, neutralizeForGitlab, parseReview, planReview, REVIEW_SCHEMA } from "../engine/core/post-review.mjs";
+import { diffLines, neutralizeForGitlab, parseReview, planReview, REVIEW_SCHEMA, scrubSecrets } from "../engine/core/post-review.mjs";
 import { createGitlab } from "../engine/forge/gitlab.mjs";
 import { claudeMarker, claudeNoticeMarker } from "../engine/reviewer/claude.mjs";
 import { reviewerOn } from "../engine/reviewer/index.mjs";
@@ -36,6 +36,12 @@ describe("the review answer", () => {
   it("model text: no mentions, no references, no hidden HTML", () => {
     assert.equal(neutralizeForGitlab("ask @bob about #12, !7 and &3 <!-- ai-review:claude sha=x -->"), `ask @${ZW}bob about #${ZW}12, !${ZW}7 and &${ZW}3 &lt;!-- ai-review:claude sha=x -->`);
     assert.equal(neutralizeForGitlab("Wow! ![img](u) a != b"), "Wow! ![img](u) a != b");
+  });
+
+  it("secrets never reach a note: exact values the job knows and token shapes", () => {
+    assert.equal(scrubSecrets("key sk-ant-api03-AAAAAAAAAAAA and glpat-BBBBBBBBBBBBBBBB and s3cr3t-value", ["s3cr3t-value", "short"]), "key [redacted] and [redacted] and [redacted]");
+    const plan = planReview({ findings: [{ file: "src/cart.mjs", line: 12, title: "leak", body: "token is s3cr3t-value" }], risk: "high", reason: "glpat-CCCCCCCCCCCCCCCC", unchecked: "" }, diffs, { sha: HEAD, secrets: ["s3cr3t-value"] });
+    assert.ok(!plan.threads[0].body.includes("s3cr3t") && !plan.summary.includes("glpat-"));
   });
 
   it("plan: a finding on a diff line gets a position; elsewhere a plain thread naming the place; the summary ends with the marker", () => {

@@ -93,21 +93,37 @@ export function neutralizeForGitlab(text) {
     .replace(/<!--/g, "&lt;!--");
 }
 
+/** Token shapes that must never be posted: GitLab access / job tokens, Anthropic keys. */
+const TOKEN_SHAPES = [/\bglpat-[A-Za-z0-9_-]{10,}/g, /\bglcbt-[A-Za-z0-9_-]{10,}/g, /\bsk-ant-[A-Za-z0-9_-]{10,}/g];
+
+/**
+ * Secrets out of model text: the exact values the posting job knows (its API key, the bot token) and anything shaped
+ * like a token. The review run cannot read the job's environment (restricted mode keeps its file tools inside the
+ * checkout), so this is the second line, not the first.
+ */
+export function scrubSecrets(text, secrets = []) {
+  let out = String(text ?? "");
+  for (const v of secrets) if (typeof v === "string" && v.length >= 8) out = out.split(v).join("[redacted]");
+  for (const re of TOKEN_SHAPES) out = out.replace(re, "[redacted]");
+  return out;
+}
+
 /**
  * Which threads to open and what the summary says.
  * @param review  parseReview() result
  * @param diffs   the MR's `/diffs` entries `{ old_path, new_path, diff, deleted_file }`
  * @returns `{ threads: [{ body, fallbackBody, position | null }], summary }` — position `{ new_path, old_path, new_line, old_line }`
  */
-export function planReview(review, diffs, { sha, maxComments = 10, lang = "en", pr = "MR" } = {}) {
+export function planReview(review, diffs, { sha, maxComments = 10, lang = "en", pr = "MR", secrets = [] } = {}) {
+  const clean = (text) => neutralizeForGitlab(scrubSecrets(text, secrets));
   const byPath = new Map(diffs.filter((d) => !d.deleted_file).map((d) => [d.new_path, d]));
   const kept = review.findings.slice(0, maxComments);
   const threads = kept.map((f) => {
     const d = byPath.get(f.file);
     const lines = d ? diffLines(d.diff) : new Map();
     const onDiff = lines.has(f.line);
-    const title = neutralizeForGitlab(f.title);
-    const text = neutralizeForGitlab(f.body);
+    const title = clean(f.title);
+    const text = clean(f.body);
     // The place in backticks: a path is shown as written, never read as a reference.
     const named = [`**${title}** (\`${f.file}:${f.line}\`)`, "", text].join("\n").trim();
     return {
@@ -122,8 +138,8 @@ export function planReview(review, diffs, { sha, maxComments = 10, lang = "en", 
       dropped: review.findings.length - kept.length,
       offDiff: threads.filter((th) => !th.position).length,
       risk: review.risk,
-      reason: neutralizeForGitlab(review.reason),
-      unchecked: neutralizeForGitlab(review.unchecked),
+      reason: clean(review.reason),
+      unchecked: clean(review.unchecked),
       pr,
     }),
     "",

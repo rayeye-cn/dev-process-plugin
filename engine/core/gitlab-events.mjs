@@ -7,7 +7,7 @@
  * Tasks:
  * - `gate`:   re-judge one MR (cli/risk-gate.mjs);
  * - `review`: the head of one MR needs Claude's review (a push, opened, reopened, ready, retarget);
- * - `queue`:  run the merge queue (an MR was labelled for it, something merged, a gate pass may unblock it).
+ * - `queue`:  run the merge queue (an MR was labelled for it, something merged, its MR pipeline finished).
  * The bot's own events are ignored (its notes and statuses would otherwise re-trigger it forever); notes on anything
  * but merge requests, and events of other projects' MRs, are ignored.
  */
@@ -63,12 +63,15 @@ export function eventTasks(payload, { bot, queueLabel = "merge-queue" } = {}) {
       return { mr, head: payload.merge_request?.last_commit?.id ?? null, tasks: ["gate"], baseChangedAt: null, why: "comment" };
     }
     case "pipeline": {
+      // Only a finished MERGE REQUEST pipeline matters, and only to the queue (its required checks may pass now). The gate
+      // does not read CI, and must not run on pipeline events: those carry the pipeline's user, not the bot, so a status
+      // the gate writes would come back as an event and re-run it.
       const a = payload.object_attributes ?? {};
       const mr = Number(payload.merge_request?.iid) || null;
       const finished = ["success", "failed", "canceled", "skipped"].includes(a.status);
-      if (!mr || !finished) return none(mr ? `pipeline ${a.status}` : "pipeline without a merge request");
-      // A finished MR pipeline changes the required checks: the queue may take the MR now.
-      return { mr, head: a.sha ?? null, tasks: ["gate", "queue"], baseChangedAt: null, why: `merge request pipeline ${a.status}` };
+      if (!mr || a.source !== "merge_request_event") return none("not a merge request pipeline");
+      if (!finished) return none(`pipeline ${a.status}`);
+      return { mr, head: a.sha ?? null, tasks: ["queue"], baseChangedAt: null, why: `merge request pipeline ${a.status}` };
     }
     default:
       return none(`event ${payload.object_kind ?? "?"} is not handled`);

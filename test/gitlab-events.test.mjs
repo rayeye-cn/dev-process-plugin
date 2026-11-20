@@ -52,11 +52,13 @@ describe("GitLab events", () => {
     assert.deepEqual(tasks(mrEvent({ action: "approved" }, {}, BOT)), []);
   });
 
-  it("a finished MR pipeline re-judges and wakes the queue; a running one does nothing; unknown events are ignored", () => {
-    const pipe = (status) => ({ object_kind: "pipeline", user: { username: "alice" }, object_attributes: { id: 5, status, sha: SHA, source: "merge_request_event" }, merge_request: { iid: 7 } });
-    assert.deepEqual(tasks(pipe("success")), ["gate", "queue"]);
-    assert.deepEqual(tasks(pipe("failed")), ["gate", "queue"]);
+  it("a finished MR pipeline wakes only the queue (never the gate: no loop through its own statuses); other pipelines and running ones do nothing", () => {
+    const pipe = (status, source = "merge_request_event") => ({ object_kind: "pipeline", user: { username: "alice" }, object_attributes: { id: 5, status, sha: SHA, source }, merge_request: { iid: 7 } });
+    assert.deepEqual(tasks(pipe("success")), ["queue"]);
+    assert.deepEqual(tasks(pipe("failed")), ["queue"]);
     assert.deepEqual(tasks(pipe("running")), []);
+    assert.deepEqual(tasks(pipe("failed", "external")), [], "the gate's own statuses live on an external pipeline");
+    assert.deepEqual(tasks(pipe("success", "push")), []);
     assert.deepEqual(tasks({ object_kind: "push" }), []);
     assert.deepEqual(tasks(null), []);
   });

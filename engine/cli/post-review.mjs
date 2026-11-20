@@ -51,7 +51,8 @@ export async function postReview({ forge, policy, reviewer, number, sha, raw, ou
     log(`[post-review] !${number}: the head moved to ${target.headSha.slice(0, 12)} while reviewing; nothing posted`);
     return { posted: null, reason: "superseded" };
   }
-  const plan = planReview(review, target.diffs, { sha, maxComments: policy.aiReview.maxComments, lang: policy.language, pr: forge.prTerm });
+  const secrets = [env.ANTHROPIC_API_KEY, env.DEV_PROCESS_TOKEN, env.GITLAB_TOKEN, env.CI_JOB_TOKEN];
+  const plan = planReview(review, target.diffs, { sha, maxComments: policy.aiReview.maxComments, lang: policy.language, pr: forge.prTerm, secrets });
   let onDiff = 0;
   // Threads first, the summary last: the gate counts the review from the summary, and then every thread must be there.
   for (const th of plan.threads) {

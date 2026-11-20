@@ -89,7 +89,7 @@
 {{#if isClaude}}
 - **Claude 评审用的是 {{ pr }} 自己的工作流文件和评审说明**（`pull_request`，从不用 `pull_request_target`）：fork 来的 {{ pr }} 拿不到密钥、不评审；本仓分支的 {{ pr }}，作者本来就有写权限。改评审方式的 {{ pr }}（`.github/**`、`.dev-process/**`）是 high 档，要另一位所有者批准。只有 Claude App 账号（`claude[bot]`）发的、带 head 标记的总结才算；标记谁都能贴，但别人发不成 App 的身份。
 {{/if}}
-- **挡不住的**：有写权限的人在自己的分支上专门写一个工作流，给别的 {{ pr }} 发 status{{#if isClaude}}，或者用 claude-code-action 以 Claude App 的身份发一条假的评审总结{{/if}}。这是内部人蓄意绕过，本流程不防，靠 CODEOWNERS 和团队约定（`CLAUDE.md`「评审流程」第 11 条）。要防到这一层，得改用专门的 GitHub App 发 status，并把它的私钥放进只允许默认分支使用的 environment。
+- **挡不住的**：有写权限的人在自己的分支上专门写一个工作流，给别的 {{ pr }} 发 status{{#if isClaude}}，或者用 claude-code-action 以 Claude App 的身份发一条假的评审总结；同理，加了 `.claude/` hook 或 MCP 服务的 {{ pr }}，在它自己的评审作业里就会执行，那时还没有人看过（high 档只保证合入前有人看到这处改动）{{/if}}。这是内部人蓄意绕过，本流程不防，靠 CODEOWNERS 和团队约定（`CLAUDE.md`「评审流程」第 11 条）。要防到这一层，得改用专门的 GitHub App 发 status，并把它的私钥放进只允许默认分支使用的 environment。
 - **有自托管 runner 时，fork 必须保持关闭**：私有仓库在组织和仓库两级都关掉 fork（组织设置的「Allow forking of private repositories」、仓库设置的「Allow forking」），Actions 设置里也不要勾「Run workflows from fork pull requests」。原因：fork 来的 {{ pr }} 能改它自己那份 CI 工作流，把 `runs-on` 改成自托管 runner，代码就会在你的机器上跑。工作流里对 fork 的拦截、合并队列不收 fork，都只是第二道防线。公开仓库不要用自托管 runner。
 
 ## 常见问题
