@@ -579,7 +579,8 @@ describe("claude-review.yml (rendered only for Claude)", () => {
     it(`${name}: checks out the head, reviews with read-only tools, posts as the App, notices as the CI identity`, () => {
       const text = files["claude-review"];
       const { review } = jobsOf(text);
-      assert.deepEqual(review.permissions, { contents: "read", "pull-requests": "write", issues: "write", "id-token": "write", actions: "write" });
+      // statuses: read — found in the sandbox E2E: loadChange reads the head's commit statuses (403 without it).
+      assert.deepEqual(review.permissions, { contents: "read", "pull-requests": "write", issues: "write", statuses: "read", "id-token": "write", actions: "write" });
       const [head, side, ...more] = checkouts(review);
       assert.deepEqual(more, []);
       assert.equal(stepBlock(head, "with").ref, "${{ github.event.pull_request.head.sha }}");
@@ -605,6 +606,9 @@ describe("claude-review.yml (rendered only for Claude)", () => {
       assert.match(text, /ai-review\.mjs verify .*--outcome "\$OUTCOME"/);
       assert.match(text, /OUTCOME: \$\{\{ steps\.claude\.outcome \}\}/);
       assert.match(text, new RegExp(`gh workflow run ${ctx.policy.names.gateWorkflow.replace(".", "\\.")} .*-f pr="\\$PR"`));
+      // found in the sandbox E2E: on the install PR the gate is not on the default branch yet; the wake-up is best effort
+      const wake = review.steps.find((s) => /gh workflow run/.test(s.text));
+      assert.match(wake.text, /continue-on-error: true/);
       // Only the key's presence reaches the steps outside the action.
       assert.equal((text.match(/secrets\.ANTHROPIC_API_KEY/g) ?? []).length, 2);
       assert.match(text, /KEY_SET: \$\{\{ secrets\.ANTHROPIC_API_KEY != '' \}\}/);

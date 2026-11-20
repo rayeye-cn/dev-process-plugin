@@ -44,6 +44,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      statuses: read # the engine loads the PR the same way the gate does, commit statuses included
       id-token: write # claude-code-action exchanges it for the Claude GitHub App's token
       actions: write # only to re-run the gate after leaving a notice
     # GH_TOKEN (github-actions[bot]) only on the steps that read the PR or post the notice; the review step posts as
@@ -107,8 +108,11 @@ jobs:
           OUTCOME: ${{ steps.claude.outcome }}
         run: node {{ ciCopy }}/{{ engine }}/cli/ai-review.mjs verify --repo "$GITHUB_REPOSITORY" --pr "$PR" --head-sha "$HEAD_SHA" --outcome "$OUTCOME"
       # A comment posted with GITHUB_TOKEN starts no workflow, so the gate would not show the notice until the next event.
+      # Best effort: the notice is already posted (and on the PR that installs the process the gate is not on the
+      # default branch yet).
       - name: {{ s.aiReviewWakeGate }}
         if: steps.verify.outputs.notice == 'true'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}

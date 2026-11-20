@@ -76,7 +76,7 @@ Exit 4 or doctor errors: explain each finding (they are printed in the project l
 
 Commit in three topic commits, messages in the project language:
 1. Conventions and review instructions: `CLAUDE.md`, the PR template, the AI review instruction files, `CODEOWNERS`, `.dev-process/config.json`, `.dev-process/answers.json`, `.dev-process/VERSION`, `.dev-process/render-lock.json`, `.dev-process/engine/`.
-2. CI, risk gate and merge queue: `.github/workflows/ci.yml`, `risk-gate.yml`, `risk-gate-events.yml`, `merge-queue.yml`.
+2. CI, risk gate, merge queue and AI review: `.github/workflows/ci.yml`, `risk-gate.yml`, `risk-gate-events.yml`, `merge-queue.yml`, and `claude-review.yml` when Claude reviews.
 3. Loops and docs: the remaining workflows, `docs/dev-process/`, `docs/incident-review-template.md`, the review-eval files.
 
 Ask before `git push -u origin dev-process/init` and before `gh pr create`. The PR body (project language) says what was installed, links `docs/dev-process/review-setup.md`, and lists the admin steps below. This first PR is not judged by the gate (the gate workflows run from the default branch, where they don't exist yet) — say so; it needs a normal human review.

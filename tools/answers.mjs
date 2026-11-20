@@ -92,7 +92,8 @@ export function validateAnswers(raw) {
 
   const ci = a.ci ?? {};
   const testsRunner = oneOf(ci.testsRunner ?? "hosted", "ci.testsRunner", ["hosted", "self-hosted"]);
-  const selfHostedLabels = strList(ci.selfHostedLabels ?? ["self-hosted"], "ci.selfHostedLabels", { min: 1 });
+  // Labels matter only when something runs self-hosted (checked below, once the release gate's runner is known).
+  const selfHostedLabels = strList(ci.selfHostedLabels ?? ["self-hosted"], "ci.selfHostedLabels");
   let releaseGate = null;
   if (ci.releaseGate) {
     const r = ci.releaseGate;
@@ -105,6 +106,7 @@ export function validateAnswers(raw) {
     };
     if (!releaseGate.steps.length) fail("ci.releaseGate.steps", "needs at least one step");
   }
+  if ((testsRunner === "self-hosted" || releaseGate?.runner === "self-hosted") && !selfHostedLabels.length) fail("ci.selfHostedLabels", "needs at least 1 when a job runs self-hosted");
   const checks = steps(ci.checks, "ci.checks");
   const tests = steps(ci.tests, "ci.tests");
   if (!checks.length && !tests.length) fail("ci", "needs at least one check or test step");

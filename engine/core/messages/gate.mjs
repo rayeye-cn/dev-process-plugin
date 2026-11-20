@@ -5,8 +5,8 @@
 
 /** How a missing AI review gets (re)started, per reviewer. */
 const autoHint = {
-  zh: { copilot: "通常每次推送后几分钟内自动评审；没来就在评审人列表里重新请求 Copilot", claude: "每次推送后评审作业自动运行（草稿不评审）；没跑成就重跑 AI 评审作业" },
-  en: { copilot: "usually arrives a few minutes after each push; if not, re-request Copilot in the reviewers list", claude: "the review job runs after every push (not on drafts); if it failed, re-run the AI review job" },
+  zh: { copilot: "通常每次推送后几分钟内自动评审；没来就在评审人列表里重新请求 Copilot", claude: "每次推送后评审作业自动运行，草稿不评审；没跑成就重跑 AI 评审作业" },
+  en: { copilot: "usually arrives a few minutes after each push; if not, re-request Copilot in the reviewers list", claude: "the review job runs after every push, not on drafts; if it failed, re-run the AI review job" },
 };
 /** Does the gate refresh when the review lands? Copilot's review event does not reach it; Claude's summary comment does. */
 const rejudgeHint = {

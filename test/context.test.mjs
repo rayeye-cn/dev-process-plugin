@@ -37,6 +37,13 @@ describe("answers", () => {
     bad({ ci: { checks: [{ run: "a", uses: "b" }] } }, /ci\.checks\[0\]/);
     bad({ ci: {} }, /answers\.ci/);
     bad({ queue: { mode: "train" } }, /queue\.mode/);
+    bad({ ci: { ...raw.ci, testsRunner: "self-hosted", selfHostedLabels: [] } }, /ci\.selfHostedLabels/);
+    bad({ ci: { ...raw.ci, testsRunner: "hosted", selfHostedLabels: [] } }, /ci\.selfHostedLabels/); // the fixture's release gate is self-hosted
+  });
+
+  it("runner labels may be empty when nothing runs self-hosted (found in the sandbox E2E)", () => {
+    const a = validateAnswers({ ...raw, ci: { ...raw.ci, testsRunner: "hosted", releaseGate: { ...raw.ci.releaseGate, runner: "hosted" }, selfHostedLabels: [] } });
+    assert.deepEqual(a.ci.selfHostedLabels, []);
   });
 });
 
