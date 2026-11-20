@@ -89,7 +89,12 @@ describe("detectLocal", () => {
 });
 
 describe("GitLab", async () => {
-  const { detectGitlab, projectFromRemote } = await import("../tools/detect.mjs");
+  const { detectGitlab, gitlabCi, projectFromRemote } = await import("../tools/detect.mjs");
+  it("GitLab CI proposals keep shell steps only; the image provides the toolchain", () => {
+    const ci = { setup: [{ uses: "actions/setup-node@v4", with: { "node-version": 24 } }, { run: "npm ci" }], checks: [{ run: "npm run lint" }], tests: [{ run: "npm test" }] };
+    assert.deepEqual(gitlabCi(ci, ["node"]), { setup: [{ run: "npm ci" }], checks: [{ run: "npm run lint" }], tests: [{ run: "npm test" }], testsRunner: "hosted", image: "node:24" });
+    assert.equal(gitlabCi({}, ["python"]).image, "python:3.12");
+  });
   it("nested project paths from https and ssh remotes", () => {
     assert.equal(projectFromRemote("https://gl.example.com/grp/sub/app.git"), "grp/sub/app");
     assert.equal(projectFromRemote("git@gl.example.com:grp/app.git"), "grp/app");

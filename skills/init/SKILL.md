@@ -29,7 +29,7 @@ Run and check:
 The forge comes from the remote's host:
 - **github.com** → GitHub. `gh auth status` must pass; if not logged in, ask the user to run `! gh auth login` themselves.
 - **A host with "gitlab" in its name** → GitLab (self-managed or gitlab.com). Version 17.11 or later.
-- **Any other host**: ask the user whether it is a self-managed GitLab (continue as GitLab) or GitHub Enterprise Server (not supported in this version: say so and stop).
+- **Any other host** (an IP address too): ask the user whether it is a self-managed GitLab (continue as GitLab, adding `--forge gitlab` to the detect command) or GitHub Enterprise Server (not supported in this version: say so and stop).
 
 GitLab: the remote facts (version, tier, members) need the user's own token (Maintainer or Owner, `api` scope) in `GITLAB_TOKEN`; the user runs the detect command below themselves (see the token rule above) and pastes its JSON output back. Without it, detect without `--remote` and ask for the tier.
 

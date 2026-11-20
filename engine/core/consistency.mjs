@@ -73,7 +73,7 @@ export function checkConsistency({ policy, codeowners = null, applyTo = null, cl
     for (const e of entries) {
       const untrusted = e.owners.filter((o) => !o.includes("/") && !policy.trustedAuthors.includes(o));
       if (untrusted.length) add("error", "consistency.ownerNotTrusted", { glob: e.glob, owners: untrusted });
-      if (e.owners.length < 2) add("warn", "consistency.singleOwner", { glob: e.glob });
+      if (e.owners.length < 2) add("warn", "consistency.singleOwner", { glob: e.glob, pr: policy.forge === "gitlab" ? "MR" : "PR" });
     }
   }
 

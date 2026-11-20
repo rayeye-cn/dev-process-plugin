@@ -124,13 +124,15 @@ function dirsOf(root) {
   return out;
 }
 
-export function detectLocal(target) {
+export function detectLocal(target, { forge: forced = null } = {}) {
   const root = resolve(target);
   const files = new Set(readdirSync(root));
   const remoteUrl = git(root, ["remote", "get-url", "origin"]);
   const host = hostOf(remoteUrl);
-  // Only github.com is certain from a host name; a self-managed GitLab or a GHES host can be called anything.
-  const forge = !host || host === "github.com" ? "github" : /gitlab/i.test(host) ? "gitlab" : "unknown";
+  // Only github.com is certain from a host name; a self-managed GitLab or a GHES host can be called anything (an IP
+  // address, too): the user confirms, and `--forge gitlab` says so.
+  const forge = forced ?? (!host || host === "github.com" ? "github" : /gitlab/i.test(host) ? "gitlab" : "unknown");
+  const scheme = /^http:\/\//i.test(String(remoteUrl ?? "").trim()) ? "http" : "https";
   const head = git(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
   const defaultBranch = head ? head.replace(/^origin\//, "") : git(root, ["branch", "--show-current"]) || "main";
   const pkg = readJson(join(root, "package.json"));
@@ -185,16 +187,26 @@ export function detectLocal(target) {
     proposal: {
       version: 1,
       forge,
-      ...(forge === "gitlab" ? { gitlab: { url: `https://${host}`, tier: "free" } } : {}),
+      ...(forge === "gitlab" ? { gitlab: { url: `${scheme}://${host}`, tier: "free" } } : {}),
       language,
       project: { name: pkg?.name ?? basename(root), description: pkg?.description ?? "" },
       repo: forge === "github" ? repoFromRemote(remoteUrl) : projectFromRemote(remoteUrl),
       defaultBranch,
       paths: { high: [...new Set([...risky, ...MANIFESTS.filter((m) => files.has(m))])], security: [...new Set([...security, ...(forge === "gitlab" ? [".gitlab-ci.yml", ".gitlab/**"] : [".github/**"])])], lowOnly },
-      ci: { ...ci, testsRunner: "hosted" },
+      ci: forge === "gitlab" ? gitlabCi(ci, stack) : { ...ci, testsRunner: "hosted" },
       release: { label: "release", versionFiles: cis.flatMap((c) => c.releaseFiles) },
     },
   };
+}
+
+/**
+ * GitLab jobs run shell commands in a Docker image: GitHub `uses` steps (setup-node and the like) are dropped and the
+ * image provides the toolchain instead.
+ */
+export function gitlabCi(ci, stack = []) {
+  const shell = (list) => (list ?? []).filter((st) => st.run);
+  const image = stack.includes("node") || stack.includes("bun") ? (stack.includes("bun") ? "oven/bun:1" : "node:24") : stack.includes("python") ? "python:3.12" : stack.includes("go") ? "golang:1.23" : stack.includes("rust") ? "rust:1" : "node:24";
+  return { setup: shell(ci.setup), checks: shell(ci.checks), tests: shell(ci.tests), testsRunner: "hosted", image };
 }
 
 const gh = (args) => {
@@ -262,7 +274,10 @@ async function main() {
   const argv = process.argv.slice(2);
   const ti = argv.indexOf("--target");
   const target = ti >= 0 ? argv[ti + 1] : ".";
-  const out = detectLocal(target);
+  const fi = argv.indexOf("--forge");
+  const forced = fi >= 0 ? argv[fi + 1] : null;
+  if (forced && !["github", "gitlab"].includes(forced)) throw new Error(`--forge must be github or gitlab, not "${forced}"`);
+  const out = detectLocal(target, { forge: forced });
   if (argv.includes("--remote") && out.proposal.repo && out.proposal.forge === "gitlab") {
     if (!process.env.GITLAB_TOKEN) out.facts.remote = { reachable: false, why: "GITLAB_TOKEN is not set" };
     else {

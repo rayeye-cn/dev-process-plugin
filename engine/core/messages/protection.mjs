@@ -2,7 +2,7 @@
 const zh = {
   "consistency.codeownersMismatch": (p) => `CODEOWNERS 与策略的 highPaths 不一致：缺 ${p.missing.join("、") || "无"}；多 ${p.extra.join("、") || "无"}`,
   "consistency.ownerNotTrusted": (p) => `CODEOWNERS 里 ${p.glob} 的所有者 ${p.owners.join("、")} 不在信任名单里`,
-  "consistency.singleOwner": (p) => `CODEOWNERS 里 ${p.glob} 只有一位所有者：他自己的 PR 没有人能批`,
+  "consistency.singleOwner": (p) => `CODEOWNERS 里 ${p.glob} 只有一位所有者：他自己的 ${p.pr ?? "PR"} 没有人能批`,
   "consistency.applyToMissing": "Copilot 安全指令文件没有 applyTo 前言",
   "consistency.applyToMismatch": (p) => `Copilot 安全指令的 applyTo 与 securityPaths 不一致：缺 ${p.missing.join("、") || "无"}；多 ${p.extra.join("、") || "无"}`,
   "consistency.processNotHigh": (p) => `流程文件不在 highPaths 里：${p.paths.join("、")}（AI 读的是 PR 分支上的指令，改它必须有另一人审）`,
@@ -21,7 +21,7 @@ const zh = {
 const en = {
   "consistency.codeownersMismatch": (p) => `CODEOWNERS does not match the policy's highPaths: missing ${p.missing.join(", ") || "none"}; extra ${p.extra.join(", ") || "none"}`,
   "consistency.ownerNotTrusted": (p) => `CODEOWNERS owners of ${p.glob} are not trusted authors: ${p.owners.join(", ")}`,
-  "consistency.singleOwner": (p) => `CODEOWNERS names a single owner for ${p.glob}: nobody can approve that owner's own PRs`,
+  "consistency.singleOwner": (p) => `CODEOWNERS names a single owner for ${p.glob}: nobody can approve that owner's own ${p.pr ?? "PR"}s`,
   "consistency.applyToMissing": "The Copilot security instruction file has no applyTo front matter",
   "consistency.applyToMismatch": (p) => `The Copilot security instruction's applyTo does not match securityPaths: missing ${p.missing.join(", ") || "none"}; extra ${p.extra.join(", ") || "none"}`,
   "consistency.processNotHigh": (p) => `Process files are not in highPaths: ${p.paths.join(", ")} (the AI reads instructions from the PR branch, so changing them needs another person)`,
