@@ -71,7 +71,7 @@ describe("runBot", () => {
     const payload = JSON.stringify({ object_kind: "merge_request", user: { username: "alice" }, object_attributes: { iid: 7, action: "update", oldrev: "a".repeat(40), state: "opened", last_commit: { id: HEAD } }, changes: {} });
     const out = await run(f, ENV, () => payload);
     assert.deepEqual(out.done.judged, [7]);
-    assert.deepEqual(f.pipelines(), [`DEV_PROCESS_TASK=ai-review DEV_PROCESS_PR=7 DEV_PROCESS_SHA=${HEAD}`]);
+    assert.deepEqual(f.pipelines(), [`DEV_PROCESS_TASK=ai-review DEV_PROCESS_PR=7 DEV_PROCESS_SHA=${HEAD} DEV_PROCESS_TARGET=main`]);
     assert.ok(f.calls.some((c) => c[0] === "status" && c[2] === "risk-gate"));
   });
 
@@ -102,6 +102,6 @@ describe("runBot", () => {
     const f = fakeForge({ changes, open });
     const out = await run(f, { ...ENV, CI_PIPELINE_SOURCE: "schedule", DEV_PROCESS_TASK: "poll" });
     assert.deepEqual(out.done.judged, [1, 2, 3]);
-    assert.deepEqual(f.pipelines(), [`DEV_PROCESS_TASK=ai-review DEV_PROCESS_PR=1 DEV_PROCESS_SHA=${HEAD}`, "DEV_PROCESS_TASK=merge-queue"]);
+    assert.deepEqual(f.pipelines(), [`DEV_PROCESS_TASK=ai-review DEV_PROCESS_PR=1 DEV_PROCESS_SHA=${HEAD} DEV_PROCESS_TARGET=main`, "DEV_PROCESS_TASK=merge-queue"]);
   });
 });

@@ -66,7 +66,7 @@ async function startReview(ctx, mr, { change = null, grace = false } = {}) {
     const pushedAt = Date.parse(c.headPushedAt ?? "");
     if (Number.isFinite(pushedAt) && now() - pushedAt < REVIEW_GRACE_MIN * 60_000) return log(`  !${mr}: the head is younger than ${REVIEW_GRACE_MIN} min; its review may still run`);
   }
-  await ops.dispatchWorkflow(forge, policy.names.aiReviewWorkflow, branch, { pr: String(mr), sha: c.headSha });
+  await ops.dispatchWorkflow(forge, policy.names.aiReviewWorkflow, branch, { pr: String(mr), sha: c.headSha, target: c.baseRef });
   log(`  !${mr}: review pipeline started for ${c.headSha.slice(0, 12)}`);
 }
 

@@ -67,11 +67,11 @@ export function neutralizeMentions(text) {
  * links have no effect and quoted code stays exactly as written. The fence is longer than the longest backtick run in the
  * text, so the text cannot break out.
  */
-export function asCodeBlock(text) {
+export function asCodeBlock(text, lang = "text") {
   const s = String(text);
   const longest = Math.max(0, ...[...s.matchAll(/`+/g)].map((m) => m[0].length));
   const fence = "`".repeat(Math.max(3, longest + 1));
-  return `${fence}text\n${s}\n${fence}`;
+  return `${fence}${lang}\n${s}\n${fence}`;
 }
 
 const FINDING_LINE = new RegExp(`^\\s*${FINDING_TOKEN}\\s+(\\{.*\\})\\s*$`);

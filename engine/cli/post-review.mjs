@@ -5,6 +5,7 @@
  * left its answer in a file.
  *
  *   node .dev-process/engine/cli/post-review.mjs --pr <iid> --head-sha <sha> --review-file <file> [--outcome <outcome>]
+ *   node .dev-process/engine/cli/post-review.mjs --dir <dir>     # what cli/gitlab-review.mjs prepared and Claude wrote
  *
  * --head-sha: the commit that was reviewed. When the MR has moved on, nothing is posted (that push gets its own review).
  * --outcome: how the review run ended (success | failure | skipped | cancelled); with no usable answer the bot leaves a
@@ -12,8 +13,11 @@
  * Nothing is posted twice: a head that already has a review (after the latest target change) is left alone.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { reviewDecision, verifyDecision, hasNotice } from "../core/ai-review.mjs";
+import { extractText } from "../core/ai-output.mjs";
+import { parseOutput as parseClassifier } from "../core/classify.mjs";
 import { tr } from "../core/messages/index.mjs";
 import { loadPolicy } from "../core/policy.mjs";
 import { parseReview, planReview } from "../core/post-review.mjs";
@@ -23,7 +27,30 @@ import { reviewerOn } from "../reviewer/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 import { judgeChange } from "./risk-gate.mjs";
 
-const USAGE = "usage: post-review.mjs --pr <iid> --head-sha <40-hex sha> --review-file <file> [--outcome success|failure|skipped|cancelled] [--repo group/name]";
+const USAGE = "usage: post-review.mjs (--dir <dir> | --pr <iid> --head-sha <40-hex sha> --review-file <file> [--outcome success|failure|skipped|cancelled]) [--repo group/name]";
+
+const readIf = (file) => (existsSync(file) ? readFileSync(file, "utf8") : null);
+
+/**
+ * The review job's directory → `{ number, sha, raw, outcome, keySet, classifier, skip }`. `skip`: the head moved before
+ * the review ran (nothing to post).
+ */
+export function readReviewDir(dir) {
+  const meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8"));
+  const state = (readIf(join(dir, "state")) ?? "").trim();
+  const outcome = (readIf(join(dir, "outcome")) ?? "").trim() || (state === "no-key" ? "skipped" : "failure");
+  const cls = readIf(join(dir, "classify.json"));
+  const parsed = cls ? parseClassifier(extractText(cls)) : null;
+  return {
+    number: String(meta.pr),
+    sha: String(meta.sha),
+    raw: state === "ready" ? readIf(join(dir, "review.json")) : null,
+    outcome,
+    keySet: Boolean(meta.keySet),
+    classifier: parsed ? { tier: parsed.tier, reason: parsed.reason } : null,
+    skip: state === "superseded",
+  };
+}
 
 /**
  * @returns `{ posted: "review" | "notice" | null, reason, threads? }`
@@ -66,24 +93,32 @@ export async function postReview({ forge, policy, reviewer, number, sha, raw, ou
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const number = typeof args.pr === "string" ? args.pr : "";
-  const sha = typeof args["head-sha"] === "string" ? args["head-sha"] : "";
-  const file = typeof args["review-file"] === "string" ? args["review-file"] : "";
-  if (!/^\d+$/.test(number) || !/^[0-9a-f]{40}$/.test(sha) || !file) {
+  const env = process.env;
+  let job;
+  if (typeof args.dir === "string") job = readReviewDir(args.dir);
+  else {
+    const file = typeof args["review-file"] === "string" ? args["review-file"] : "";
+    const raw = file ? readIf(file) : null;
+    job = { number: typeof args.pr === "string" ? args.pr : "", sha: typeof args["head-sha"] === "string" ? args["head-sha"] : "", raw, outcome: typeof args.outcome === "string" ? args.outcome : raw ? "success" : "failure", keySet: env.KEY_SET !== "false", classifier: null, skip: false, file };
+    if (!file) job.number = "";
+  }
+  if (!/^\d+$/.test(job.number) || !/^[0-9a-f]{40}$/.test(job.sha)) {
     console.error(USAGE);
     process.exitCode = 2;
+    return;
+  }
+  if (job.skip) {
+    console.log(`[post-review] !${job.number}: the head moved before the review ran; nothing to post`);
     return;
   }
   const root = repoRoot();
   const policy = loadPolicy(root);
   const forge = await openForge(policy, { repo: repoName(args, root) });
   const reviewer = reviewerOn(policy, forge);
-  const raw = existsSync(file) ? readFileSync(file, "utf8") : null;
-  const outcome = typeof args.outcome === "string" ? args.outcome : raw ? "success" : "failure";
-  const env = process.env;
-  const out = await postReview({ forge, policy, reviewer, number, sha, raw, outcome, keySet: env.KEY_SET !== "false", env });
-  // The gate sees the review (or the notice) now, not at the next event.
-  if (out.posted) await judgeChange({ forge, policy, reviewer, number, baseHint: env.BASE_CHANGED_AT || null });
+  const out = await postReview({ forge, policy, reviewer, number: job.number, sha: job.sha, raw: job.raw, outcome: job.outcome, keySet: job.keySet, env });
+  // The gate sees the review (or the notice) and the classifier's second opinion now, not at the next event.
+  const cls = job.classifier ? { CLASSIFIER_TIER: job.classifier.tier, CLASSIFIER_REASON: job.classifier.reason, CLASSIFIER_SHA: job.sha } : {};
+  if (out.posted || job.classifier) await judgeChange({ forge, policy, reviewer, number: job.number, env: cls });
 }
 
 runIfMain(import.meta.url, "post-review", main);
