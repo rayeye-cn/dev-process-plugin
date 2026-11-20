@@ -4,7 +4,7 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 
 中文说明见 [README.zh.md](README.zh.md).
 
-> **Status: pre-release (M0).** Nothing is installable yet. See the roadmap below.
+> **Status: pre-release (M2).** Installs on GitHub with GitHub Copilot as the reviewer and the built-in merge queue; not yet validated end to end on a real repository (M4). Claude as the reviewer, the native merge queue and GitLab come next.
 
 ## What it installs
 
@@ -37,8 +37,8 @@ Then, in the repository to set up: `/dev-process:init`.
 ## Roadmap
 
 - [x] M0 Repository skeleton, manifests, CI
-- [ ] M1 Engine extracted from the reference implementation (GitHub, Copilot, Chinese)
-- [ ] M2 English catalog, bilingual templates, deterministic renderer, `init` and `doctor` skills
+- [x] M1 Engine extracted from the reference implementation (GitHub, Copilot, Chinese)
+- [x] M2 English catalog, bilingual templates, deterministic renderer, `init`, `doctor` and `upgrade` skills (GitHub + Copilot + built-in queue)
 - [ ] M3 Claude reviewer on GitHub
 - [ ] M4 End-to-end validation in a sandbox GitHub repository
 - [ ] M5 Self-managed GitLab (all tiers)

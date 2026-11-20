@@ -4,7 +4,7 @@
 
 English: [README.md](README.md).
 
-> **状态：预发布（M0）。** 还不能安装使用，进度见下面的路线图。
+> **状态：预发布（M2）。** 已能在 GitHub 上安装：评审方用 GitHub Copilot，合并用自建队列；还没在真实仓库上端到端验证（M4）。Claude 评审、原生合并队列和 GitLab 在后面几个阶段。
 
 ## 装上之后有什么
 
@@ -37,8 +37,8 @@ English: [README.md](README.md).
 ## 路线图
 
 - [x] M0 仓库骨架、清单文件、CI
-- [ ] M1 从参照实现中抽出引擎（GitHub、Copilot、中文）
-- [ ] M2 英文文案、双语模板、确定性渲染器，以及 `init`、`doctor` 两个技能
+- [x] M1 从参照实现中抽出引擎（GitHub、Copilot、中文）
+- [x] M2 英文文案、双语模板、确定性渲染器，以及 `init`、`doctor`、`upgrade` 三个技能（GitHub + Copilot + 自建队列）
 - [ ] M3 GitHub 上的 Claude 评审
 - [ ] M4 在 GitHub 沙盒仓库里做端到端验证
 - [ ] M5 私有化 GitLab（全部档位）
