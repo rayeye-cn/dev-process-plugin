@@ -22,9 +22,9 @@ import { hasNotice, reviewDecision, verifyDecision } from "../core/ai-review.mjs
 import { reviewInstructions } from "../core/findings.mjs";
 import { t, tr } from "../core/messages/index.mjs";
 import { loadPolicy } from "../core/policy.mjs";
-import { createForge } from "../forge/index.mjs";
+import { openForge } from "../forge/index.mjs";
 import { claudeMarker, claudeNoticeMarker } from "../reviewer/claude.mjs";
-import { reviewerFor } from "../reviewer/index.mjs";
+import { reviewerOn } from "../reviewer/index.mjs";
 import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
 
 /** Write `key=value` lines (a multi-line value with a random delimiter) to GITHUB_OUTPUT, or print them. */
@@ -130,8 +130,8 @@ async function main() {
     else console.log(text);
     return;
   }
-  const forge = createForge(policy, { repo });
-  const reviewer = reviewerFor(policy.reviewer, { ciIdentity: forge.ciIdentity, accounts: policy.aiReview.accounts });
+  const forge = await openForge(policy, { repo });
+  const reviewer = reviewerOn(policy, forge);
   if (reviewer.id !== "claude") throw new Error(`ai-review.mjs is the Claude review job; the policy's reviewer is "${reviewer.id}"`);
   if (cmd === "should-review") {
     const d = await shouldReview({ forge, policy, reviewer, number, eventHead: sha, env });

@@ -3,14 +3,24 @@
  * operations, so the core and the CLIs don't know which forge they talk to.
  */
 import { createGithub, githubQueueOps } from "./github.mjs";
+import { createGitlab } from "./gitlab.mjs";
 
 export function createForge(policy, opts = {}) {
   switch (policy.forge) {
     case "github":
       return createGithub(opts);
+    case "gitlab":
+      return createGitlab({ url: policy.gitlab?.url, ...opts });
     default:
       throw new Error(`forge "${policy.forge}" is not supported yet`);
   }
+}
+
+/** createForge, then whatever the forge must look up before use (GitLab: the bot's username, from the token). */
+export async function openForge(policy, opts = {}) {
+  const forge = createForge(policy, opts);
+  if (typeof forge.ready === "function") await forge.ready();
+  return forge;
 }
 
 /**

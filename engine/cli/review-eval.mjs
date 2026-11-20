@@ -21,7 +21,7 @@ import { buildEvalPrompt, evalUsable, loadCases, orderDiff, renderEval, renderNo
 import { reviewInstructions } from "../core/findings.mjs";
 import { t } from "../core/messages/index.mjs";
 import { loadPolicy } from "../core/policy.mjs";
-import { createForge, issuesOf } from "../forge/index.mjs";
+import { openForge, issuesOf } from "../forge/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const USAGE = "usage: review-eval.mjs list | head <id> | prompt <id> [--cli copilot|claude] | score --out-dir <dir> [--report-issue [--repo owner/name]]";
@@ -116,7 +116,7 @@ async function main() {
     process.stdout.write(buildEvalPrompt(reviewInstructions(root, policy), c, text, truncated, opts));
     return;
   }
-  const forge = args["report-issue"] ? createForge(policy, { repo: repoName(args, repoRoot()) }) : null;
+  const forge = args["report-issue"] ? await openForge(policy, { repo: repoName(args, repoRoot()) }) : null;
   const outDir = typeof args["out-dir"] === "string" ? args["out-dir"] : "out";
   process.exitCode = await score({ policy, cases, outDir, forge });
 }

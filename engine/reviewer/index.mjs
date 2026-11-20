@@ -23,3 +23,13 @@ export function reviewerFor(id, opts = {}) {
 }
 
 export { copilot };
+
+/**
+ * The policy's reviewer on this forge. GitLab has no reviewer App: the process bot posts Claude's review, so unless the
+ * policy names the accounts, the reviewer's account is the bot (the forge's CI identity).
+ */
+export function reviewerOn(policy, forge) {
+  const named = policy.aiReview?.accounts ?? [];
+  const accounts = named.length ? named : forge.id === "gitlab" && forge.ciIdentity ? [forge.ciIdentity] : [];
+  return reviewerFor(policy.reviewer, { ciIdentity: forge.ciIdentity, accounts });
+}

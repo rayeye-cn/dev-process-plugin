@@ -38,12 +38,13 @@ export function githubRepoFromUrl(url) {
 }
 
 /**
- * The repository `owner/name`: `--repo`, else GITHUB_REPOSITORY (set in CI), else the github.com `origin` remote of the
- * checkout, so commands run by hand in the repository need no `--repo`.
+ * The repository `owner/name`: `--repo`, else GITHUB_REPOSITORY / CI_PROJECT_PATH (set in CI), else the github.com
+ * `origin` remote of the checkout, so commands run by hand in the repository need no `--repo`.
  */
 export function repoName(args, root, env = process.env, originUrl = defaultOrigin) {
   if (typeof args.repo === "string") return args.repo;
   if (env.GITHUB_REPOSITORY) return env.GITHUB_REPOSITORY;
+  if (env.CI_PROJECT_PATH) return env.CI_PROJECT_PATH; // GitLab CI
   const found = githubRepoFromUrl(originUrl(root));
   if (found) return found;
   throw new Error("which repository? pass --repo <owner>/<name> (no github.com origin remote here, and GITHUB_REPOSITORY is not set)");

@@ -1,5 +1,6 @@
 /**
- * Claude as the AI reviewer: `anthropics/claude-code-action` on GitHub (a Claude CLI job on GitLab, M5).
+ * Claude as the AI reviewer: `anthropics/claude-code-action` on GitHub; on GitLab a Claude CLI job whose findings the
+ * process bot posts (cli/post-review.mjs), so there the reviewer's account and the CI identity are the same bot.
  *
  * Unlike Copilot, the action cannot submit formal PR reviews. A review is:
  * - inline comments through the action's inline-comment tool, posted as the Claude GitHub App (`claude[bot]`): they open
@@ -50,13 +51,11 @@ export function createClaudeReviewer({ accounts = CLAUDE_ACCOUNTS, ciIdentity = 
       for (const c of comments) {
         const body = String(c.body ?? "");
         const at = c.createdAt ?? c.updatedAt ?? null;
-        if (isReviewer(c.login)) {
-          const m = MARKER.exec(body);
-          if (m) out.push({ login: c.login, commitId: m[1].toLowerCase(), submittedAt: at, body, real: true });
-        } else if (c.login === ciIdentity) {
-          const n = NOTICE.exec(body);
-          if (n) out.push({ login: c.login, commitId: n[1].toLowerCase(), submittedAt: at, body: body.replace(NOTICE, "").trim(), real: false });
-        }
+        // On GitLab the bot is both the reviewer's account and the CI identity: the marker decides which one wrote it.
+        const m = isReviewer(c.login) ? MARKER.exec(body) : null;
+        const n = !m && c.login === ciIdentity ? NOTICE.exec(body) : null;
+        if (m) out.push({ login: c.login, commitId: m[1].toLowerCase(), submittedAt: at, body, real: true });
+        else if (n) out.push({ login: c.login, commitId: n[1].toLowerCase(), submittedAt: at, body: body.replace(NOTICE, "").trim(), real: false });
       }
       return out;
     },

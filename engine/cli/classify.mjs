@@ -22,7 +22,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 
 import { buildPrompt, orderDiff, parseOutput, truncateBytes } from "../core/classify.mjs";
 import { loadPolicy } from "../core/policy.mjs";
-import { createForge } from "../forge/index.mjs";
+import { openForge } from "../forge/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const USAGE = "usage: classify.mjs prompt --pr <number> [--repo owner/name] | classify.mjs parse [--sha <head sha>] < out.txt";
@@ -77,7 +77,7 @@ async function main() {
       return;
     }
     const policy = loadPolicy(repoRoot());
-    const forge = createForge(policy, { repo: repoName(args, repoRoot()) });
+    const forge = await openForge(policy, { repo: repoName(args, repoRoot()) });
     const { prompt, truncated, bytes } = await promptFor({ forge, policy, number: pr });
     process.stdout.write(prompt);
     console.error(`[classify] prompt for #${pr}: ${bytes} diff bytes${truncated ? ` (truncated to ${policy.classifier.maxDiffBytes})` : ""}`);

@@ -72,3 +72,21 @@ describe("the gate with Claude", () => {
     assert.equal(run({ comments: [resigned], waiver }).aiReview.waived, true);
   });
 });
+
+describe("GitLab: one bot is the reviewer's account and the CI identity", () => {
+  it("the marker decides: a summary is a review, a notice is a notice, the gate's own note is neither", () => {
+    const bot = "project_7_bot_abc";
+    const r = createClaudeReviewer({ accounts: [bot], ciIdentity: bot });
+    const sha = "a".repeat(40);
+    const got = r.aiReviews({
+      comments: [
+        { login: bot, body: `2 findings\n${claudeMarker(sha)}`, createdAt: "t1" },
+        { login: bot, body: `${claudeNoticeMarker(sha)}\nno key`, createdAt: "t2" },
+        { login: bot, body: "<!-- risk-gate -->\n### risk-gate", createdAt: "t3" },
+        { login: "dev", body: claudeMarker(sha), createdAt: "t4" },
+      ],
+    });
+    assert.deepEqual(got.map((x) => [x.real, x.submittedAt]), [[true, "t1"], [false, "t2"]]);
+  });
+});
+

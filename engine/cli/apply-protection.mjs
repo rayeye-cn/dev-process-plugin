@@ -13,7 +13,7 @@
  */
 import { githubRuleset, RULESET_NAME } from "../core/protection.mjs";
 import { loadPolicy } from "../core/policy.mjs";
-import { createForge } from "../forge/index.mjs";
+import { openForge } from "../forge/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 /** GitHub: create or update the ruleset named RULESET_NAME. Returns `{ action, id, body }`. */
@@ -34,7 +34,7 @@ export async function applyGithubRuleset(forge, policy, { dryRun = false, log = 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = loadPolicy(repoRoot());
-  const forge = createForge(policy, { repo: repoName(args, repoRoot()) });
+  const forge = await openForge(policy, { repo: repoName(args, repoRoot()) });
   const dryRun = Boolean(args["dry-run"]);
   if (forge.id === "github") await applyGithubRuleset(forge, policy, { dryRun });
   else throw new Error(`apply-protection: forge "${forge.id}" is not supported yet`);

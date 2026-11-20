@@ -17,8 +17,8 @@ import { appendFileSync } from "node:fs";
 import { aiReviewState, afterBaseChange, evaluate, isBot, needAiRerequest, pickWaiver, render, statusDescription, trustedClassifier, trustedGateStatus, waiverCommands } from "../core/gate.mjs";
 import { t } from "../core/messages/index.mjs";
 import { loadPolicy, TIERS } from "../core/policy.mjs";
-import { createForge } from "../forge/index.mjs";
-import { reviewerFor } from "../reviewer/index.mjs";
+import { openForge } from "../forge/index.mjs";
+import { reviewerOn } from "../reviewer/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const marker = (policy) => `<!-- ${policy.names.gateContext} -->`;
@@ -95,8 +95,8 @@ export async function judgeChange({ forge, policy, reviewer, number, dryRun = fa
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = loadPolicy(repoRoot());
-  const forge = createForge(policy, { repo: repoName(args, repoRoot()) });
-  const reviewer = reviewerFor(policy.reviewer, { ciIdentity: forge.ciIdentity, accounts: policy.aiReview.accounts });
+  const forge = await openForge(policy, { repo: repoName(args, repoRoot()) });
+  const reviewer = reviewerOn(policy, forge);
   const headSha = typeof args["head-sha"] === "string" ? args["head-sha"] : null;
   const number = typeof args.pr === "string" && args.pr ? args.pr : headSha ? await forge.findOpenPrByHead(headSha) : null;
   if (!number && headSha) {

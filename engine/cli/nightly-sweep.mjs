@@ -17,7 +17,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { parseFindings, reviewInstructions, validateFindings } from "../core/findings.mjs";
 import { loadPolicy } from "../core/policy.mjs";
 import { areaForDate, buildSweepPrompt, findingsInArea, isDuplicate, issueFor, markersIn } from "../core/sweep.mjs";
-import { createForge, issuesOf } from "../forge/index.mjs";
+import { openForge, issuesOf } from "../forge/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const USAGE = "usage: nightly-sweep.mjs prompt [--area <glob>] [--date YYYY-MM-DD] [--cli copilot|claude] | parse --area <glob> < out.txt | file-issues [--repo owner/name] --area <glob> findings.json";
@@ -95,7 +95,7 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  const forge = createForge(policy, { repo: repoName(args, repoRoot()) });
+  const forge = await openForge(policy, { repo: repoName(args, repoRoot()) });
   await fileIssues({ forge, policy, area, findings: JSON.parse(readFileSync(file, "utf8")) });
 }
 

@@ -15,9 +15,9 @@ import { fileURLToPath } from "node:url";
 
 import { aggregate, prMetrics, renderReport, reportIssue } from "../core/metrics.mjs";
 import { loadPolicy } from "../core/policy.mjs";
-import { createForge, issuesOf } from "../forge/index.mjs";
+import { openForge, issuesOf } from "../forge/index.mjs";
 import { mapLimit } from "../forge/util.mjs";
-import { reviewerFor } from "../reviewer/index.mjs";
+import { reviewerOn } from "../reviewer/index.mjs";
 import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
 
 const DAY = 24 * 3_600_000;
@@ -79,8 +79,8 @@ async function main() {
   }
   const root = repoRoot();
   const policy = loadPolicy(root);
-  const forge = createForge(policy, { repo });
-  const reviewer = reviewerFor(policy.reviewer, { ciIdentity: forge.ciIdentity, accounts: policy.aiReview.accounts });
+  const forge = await openForge(policy, { repo });
+  const reviewer = reviewerOn(policy, forge);
   const { body, aggregate: agg } = await collectMetrics({ forge, policy, reviewer, days });
   console.log(body);
   if (args["dry-run"]) return;

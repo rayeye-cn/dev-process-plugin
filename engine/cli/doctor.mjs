@@ -20,7 +20,7 @@ import { checkConsistency } from "../core/consistency.mjs";
 import { t, tr } from "../core/messages/index.mjs";
 import { loadPolicy } from "../core/policy.mjs";
 import { requiredContexts, RULESET_NAME } from "../core/protection.mjs";
-import { createForge } from "../forge/index.mjs";
+import { openForge } from "../forge/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 /** github.com/apps/claude: the App claude-code-action posts as (claude[bot]). */
@@ -134,7 +134,7 @@ async function main() {
   const lang = policy.language;
   const local = localFindings(root, policy);
   let remote = [];
-  if (args.remote) remote = await remoteFindings(createForge(policy, { repo: repoName(args, repoRoot()) }), policy);
+  if (args.remote) remote = await remoteFindings(await openForge(policy, { repo: repoName(args, repoRoot()) }), policy);
   const all = [...local, ...remote];
   if (args.json) console.log(JSON.stringify(all, null, 2));
   else {

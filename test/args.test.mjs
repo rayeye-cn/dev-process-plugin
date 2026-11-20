@@ -16,6 +16,7 @@ describe("repository name", () => {
     const origin = () => "git@github.com:from/origin.git";
     assert.equal(repoName({ repo: "a/b" }, "/w", { GITHUB_REPOSITORY: "c/d" }, origin), "a/b");
     assert.equal(repoName({}, "/w", { GITHUB_REPOSITORY: "c/d" }, origin), "c/d");
+    assert.equal(repoName({}, "/w", { CI_PROJECT_PATH: "g/sub/p" }, origin), "g/sub/p");
     assert.equal(repoName({ repo: true }, "/w", {}, origin), "from/origin");
     assert.throws(() => repoName({}, "/w", {}, () => ""), /--repo <owner>\/<name>/);
   });
