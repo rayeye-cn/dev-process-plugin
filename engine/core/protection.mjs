@@ -69,3 +69,50 @@ export function githubRuleset(policy) {
     rules,
   };
 }
+
+/* ───────────────────────────── GitLab ───────────────────────────── */
+
+/** GitLab access levels. */
+export const GL = Object.freeze({ NO_ONE: 0, DEVELOPER: 30, MAINTAINER: 40 });
+/** The environment the bot token is scoped to (only jobs that declare it see the variable). */
+export const BOT_ENVIRONMENT = "dev-process-bot";
+/** Descriptions mark what the setup owns (trigger, schedules), so a re-run finds them. */
+export const GITLAB_MARK = "dev-process";
+
+/**
+ * What the GitLab setup wants (pure). Free-tier enforcement is "only the bot merges": the default branch takes no pushes,
+ * merges need Maintainer, the bot is the only Maintainer (doctor reports human Maintainers). Premium adds approval
+ * settings and Code Owner approval; merge trains are a queue mode.
+ * The tier and the schedules come from `policy.gitlab` (rendered from the answers).
+ */
+export function gitlabPlan(policy, { defaultBranch } = {}) {
+  const tier = policy.gitlab?.tier ?? "free";
+  const premium = tier !== "free";
+  const wanted = new Set(policy.gitlab?.schedules ?? ["poll"]);
+  return {
+    protectedBranch: {
+      name: defaultBranch,
+      push_access_level: GL.NO_ONE,
+      merge_access_level: GL.MAINTAINER,
+      unprotect_access_level: GL.MAINTAINER,
+      allow_force_push: false,
+      ...(premium ? { code_owner_approval_required: true } : {}),
+    },
+    project: {
+      only_allow_merge_if_pipeline_succeeds: true,
+      only_allow_merge_if_all_discussions_are_resolved: true,
+      // Pipelines with variables (the queue's) need Maintainer; a Developer cannot start one with variables.
+      ci_pipeline_variables_minimum_override_role: "maintainer",
+    },
+    ...(premium
+      ? { approvals: { reset_approvals_on_push: true, merge_requests_author_approval: false, merge_requests_disable_committers_approval: true, disable_overriding_approvers_per_merge_request: true } }
+      : {}),
+    schedules: [
+      { task: "poll", cron: "*/10 * * * *", description: `${GITLAB_MARK}: poll (re-judge, missed reviews, queue)` },
+      { task: "sweep", cron: "17 3 * * *", description: `${GITLAB_MARK}: nightly sweep` },
+      { task: "metrics", cron: "23 1 * * 1", description: `${GITLAB_MARK}: weekly metrics` },
+    ].filter((x) => wanted.has(x.task)),
+    hookEvents: { merge_requests_events: true, note_events: true, pipeline_events: true, push_events: false, issues_events: false, tag_push_events: false, enable_ssl_verification: true },
+    labels: [policy.names.queueLabel],
+  };
+}

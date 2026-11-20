@@ -145,7 +145,13 @@ export function policyFrom(a) {
     paths: { ...instructionPaths(a.reviewer) },
     classifier: { enabled: a.classifier },
     release: a.release,
-    ...(a.forge === "gitlab" ? { names: { ...GITLAB_TASKS }, gitlab: { url: a.gitlab.url, tier: a.gitlab.tier } } : {}),
+    ...(a.forge === "gitlab"
+      ? {
+          names: { ...GITLAB_TASKS },
+          // The schedules the setup creates (the CI jobs for sweep / metrics exist only when these are on).
+          gitlab: { url: a.gitlab.url, tier: a.gitlab.tier, schedules: ["poll", ...(a.loops.sweep && a.paths.security.length ? ["sweep"] : []), ...(a.loops.metrics ? ["metrics"] : [])] },
+        }
+      : {}),
   });
 }
 
