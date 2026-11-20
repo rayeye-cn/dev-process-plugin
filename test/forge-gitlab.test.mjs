@@ -39,6 +39,7 @@ const ENV = { CI_API_V4_URL: "https://gl.example/api/v4", CI_PROJECT_PATH: "grp/
 
 const mrJson = (over = {}) => ({
   iid: 7,
+  state: "opened",
   title: "feat: x",
   author: { username: "alice" },
   sha: HEAD,
@@ -278,5 +279,98 @@ describe("GitLab writes", () => {
     assert.deepEqual(fetch.calls.at(-1).body, { title: "x", labels: "a,b", description: "y" });
     await forge.issues.ensureLabel("ai-eval", "1d76db");
     assert.deepEqual(fetch.calls.at(-1).body, { name: "ai-eval", color: "#1d76db" });
+  });
+});
+
+describe("GitLab merge queue (mode self)", async () => {
+  const { runQueue } = await import("../engine/cli/merge-queue.mjs");
+  const { judgeChange } = await import("../engine/cli/risk-gate.mjs");
+  const { reviewerOn: on } = await import("../engine/reviewer/index.mjs");
+  const BASE = "c".repeat(40);
+  const MERGEREF = "d".repeat(40);
+  const MERGED = "e".repeat(40);
+
+  function world({ conflict = false, ci = "success", moved = false } = {}) {
+    const branches = new Map([["main", BASE]]);
+    const statuses = new Map(); // sha → [{ id, name, status, author }]
+    let nextId = 100;
+    const addStatus = (sha, name, status, author = "alice", description = "") => {
+      const list = statuses.get(sha) ?? [];
+      list.push({ id: nextId++, name, status, description, author: { username: author }, created_at: new Date(2026, 10, 20, 12, nextId).toISOString() });
+      statuses.set(sha, list);
+    };
+    addStatus(HEAD, "checks", "success");
+    addStatus(HEAD, "tests", "success");
+    const mrBody = mrJson({ labels: ["merge-queue"], has_conflicts: false });
+    const routes = mrRoutes({
+      mr: mrBody,
+      versions: [{ head_commit_sha: HEAD, created_at: "2026-11-20T12:00:00Z" }],
+      notes: [
+        { id: 3, system: false, body: `0 findings\n${claudeMarker(HEAD)}`, created_at: "2026-11-20T12:35:00Z", author: { username: BOT } },
+        { id: 4, system: false, body: `/signoff ${HEAD.slice(0, 12)}`, created_at: "2026-11-20T12:40:00Z", author: { username: "alice" } },
+      ],
+      diffs: [{ old_path: "src/a.js", new_path: "src/a.js", diff: "+x\n" }],
+    });
+    Object.assign(routes, {
+      [`GET ${P}`]: () => ({ default_branch: "main" }),
+      [`GET ${P}/merge_requests`]: () => [mrBody],
+      [`GET ${P}/repository/commits/${HEAD}/statuses`]: () => statuses.get(HEAD) ?? [],
+      [`POST ${P}/statuses/${HEAD}`]: (b) => (addStatus(HEAD, b.name, b.state, BOT, b.description), { id: nextId }),
+      [`GET ${P}/repository/branches/main`]: () => ({ commit: { id: branches.get("main") } }),
+      [`DELETE ${P}/repository/branches/merge-queue%2Fpr-7`]: () => (branches.delete("merge-queue/pr-7"), { status: 204, body: undefined }),
+      [`POST ${P}/repository/branches`]: (_, u) => (branches.set(u.searchParams.get("branch"), u.searchParams.get("ref")), { name: u.searchParams.get("branch") }),
+      [`GET ${P}/merge_requests/7/merge_ref`]: () => (conflict ? { status: 400, body: { message: "Merge request is not mergeable" } } : { commit_id: MERGEREF }),
+      [`GET ${P}/repository/commits/${MERGEREF}`]: () => ({ id: MERGEREF, parent_ids: [BASE, HEAD] }),
+      [`GET ${P}/repository/commits/${MERGED}`]: () => ({ id: MERGED, parent_ids: [BASE, HEAD] }),
+      [`POST ${P}/pipeline`]: (b) => {
+        if (moved && b.ref !== "main") branches.set("main", "f".repeat(40));
+        return { id: 55, sha: b.ref === "main" ? branches.get("main") : MERGEREF, status: "created", web_url: "https://gl/p/55" };
+      },
+      [`GET ${P}/pipelines/55`]: () => ({ id: 55, status: ci, web_url: "https://gl/p/55" }),
+      [`PUT ${P}/merge_requests/7/merge`]: () => ({ merge_commit_sha: MERGED, state: "merged" }),
+      [`PUT ${P}/merge_requests/7`]: (b) => b,
+      [`POST ${P}/merge_requests/7/notes`]: (b) => ({ id: 9, ...b }),
+      [`POST ${P}/labels`]: (b) => ({ id: 1, ...b }),
+    });
+    return { fetch: fakeFetch(routes), branches, statuses };
+  }
+  const pol = { ...policy, forge: "gitlab", reviewer: "claude", trustedAuthors: ["alice"], aiReview: { ...policy.aiReview, accounts: [] }, names: { ...policy.names, ciWorkflow: "ci", gateWorkflow: "risk-gate", queueWorkflow: "merge-queue" } };
+  const run = async (w) => {
+    const forge = await createGitlab({ env: ENV, fetch: w.fetch }).ready();
+    // The gate runs first (as on the MR's events) and writes its status, label and note.
+    await judgeChange({ forge, policy: pol, reviewer: on(pol, forge), number: 7, env: {}, log: () => {} });
+    let clock = Date.parse("2026-11-20T13:00:00Z");
+    const out = await runQueue({ forge, policy: pol, reviewer: on(pol, forge), env: {}, log: () => {}, sleep: async (ms) => void (clock += ms), now: () => clock });
+    return { out, calls: w.fetch.calls };
+  };
+
+  it("green: the candidate is GitLab's own merge on the tested base, CI runs on it as the 'ci' task, then the MR merges at its head", async () => {
+    const w = world();
+    const { out, calls } = await run(w);
+    assert.deepEqual(out.results.map((r) => [r.number, r.outcome]), [[7, "merged"]]);
+    const pipeline = calls.find((c) => c.key === `POST ${P}/pipeline`).body;
+    assert.deepEqual(pipeline, { ref: "merge-queue/pr-7", variables: [{ key: "DEV_PROCESS_TASK", value: "ci" }, { key: "DEV_PROCESS_PR", value: "7" }, { key: "DEV_PROCESS_BASE", value: BASE }] });
+    const merge = calls.find((c) => c.key === `PUT ${P}/merge_requests/7/merge`).body;
+    assert.equal(merge.sha, HEAD);
+    assert.equal(merge.squash, false);
+    assert.match(merge.merge_commit_message, /^feat: 合并 MR !7 x\n/, "an MR is !7 on GitLab (#7 is an issue)");
+    assert.ok(!w.branches.has("merge-queue/pr-7"), "the candidate branch is deleted");
+    const queueStatus = w.statuses.get(HEAD).filter((s) => s.name === "merge-queue").map((s) => s.status);
+    assert.deepEqual(queueStatus, ["pending", "success"]);
+  });
+
+  it("GitLab cannot compute the merge ⇒ ejected as a conflict; red CI ⇒ ejected", async () => {
+    const c = await run(world({ conflict: true }));
+    assert.equal(c.out.results[0].outcome, "ejected");
+    assert.ok(c.calls.some((x) => x.key === `PUT ${P}/merge_requests/7` && x.body.remove_labels === "merge-queue"));
+    const r = await run(world({ ci: "failed" }));
+    assert.equal(r.out.results[0].outcome, "ejected");
+    assert.ok(!r.calls.some((x) => x.key === `PUT ${P}/merge_requests/7/merge`));
+  });
+
+  it("the target branch moved during CI ⇒ not merged, retried by another run", async () => {
+    const { out, calls } = await run(world({ moved: true }));
+    assert.equal(out.results[0].outcome, "retry");
+    assert.ok(!calls.some((x) => x.key === `PUT ${P}/merge_requests/7/merge`));
   });
 });

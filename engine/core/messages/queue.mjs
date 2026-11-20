@@ -41,13 +41,13 @@ const zh = {
 
   "queue.comment.ejected": (p, h) => `合并队列：已出队——${h.tr(p.why)}。处理后重新打 \`${p.label}\` 标签入队。${p.run ? `\n\n队列运行：${p.run}` : ""}`,
   "queue.comment.issueClosed": (p, h) =>
-    `由 #${p.number} 合入关闭${p.sha ? `（${h.short(p.sha)}）` : ""}。合并队列以 CI 身份合入时平台不会按 Closes 自动关闭，由队列代关。`,
+    `由 ${h.ref(p.number, p.pr)} 合入关闭${p.sha ? `（${h.short(p.sha)}）` : ""}。合并队列以 CI 身份合入时平台不会按 Closes 自动关闭，由队列代关。`,
   "queue.comment.untested": (p, h) =>
     `合并队列：本 ${p.pr} 测的是 ${p.branch}@${h.short(p.tested)}，合入时 ${p.branch} 已到 ${h.short(p.parent)}，合进去的组合没有被完整测过。` +
     `已在 ${p.branch} 上补跑 CI，请值班看结果。`,
 
-  "queue.commit.title": (p) => `合并 ${p.pr} #${p.number}`,
-  "queue.commit.trial": (p, h) => `${p.queue}: 在 ${p.branch}@${h.short(p.sha)} 上试合 #${p.number}`,
+  "queue.commit.title": (p, h) => `合并 ${p.pr} ${h.ref(p.number, p.pr)}`,
+  "queue.commit.trial": (p, h) => `${p.queue}: 在 ${p.branch}@${h.short(p.sha)} 上试合 ${h.ref(p.number, p.pr)}`,
   "queue.commit.body": (p, h) => `合并队列在 ${p.branch}@${h.short(p.sha)} 上重跑 CI 通过：${p.url ?? ""}`,
   "queue.commit.waived": (p) => `AI 评审已豁免：\`${p.by ?? "?"}\`${p.at ? ` 于 ${p.at}` : ""} 发了 \`${p.cmd}\`，多要了他人批准顶替。`,
 };
@@ -91,13 +91,13 @@ const en = {
   "queue.comment.ejected": (p, h) =>
     `Merge queue: removed from the queue: ${h.tr(p.why)}. Once fixed, add the \`${p.label}\` label again to re-queue.${p.run ? `\n\nQueue run: ${p.run}` : ""}`,
   "queue.comment.issueClosed": (p, h) =>
-    `Closed by the merge of #${p.number}${p.sha ? ` (${h.short(p.sha)})` : ""}. The platform does not close issues from "Closes" when the merge queue merges as the CI identity, so the queue closes them.`,
+    `Closed by the merge of ${h.ref(p.number, p.pr)}${p.sha ? ` (${h.short(p.sha)})` : ""}. The platform does not close issues from "Closes" when the merge queue merges as the CI identity, so the queue closes them.`,
   "queue.comment.untested": (p, h) =>
     `Merge queue: this ${p.pr} was tested on ${p.branch}@${h.short(p.tested)}, but ${p.branch} was at ${h.short(p.parent)} when it merged, so the merged combination was not fully tested. ` +
     `CI was re-run on ${p.branch}; please watch the result.`,
 
-  "queue.commit.title": (p) => `${p.start ? "Merge" : "merge"} ${p.pr} #${p.number}`,
-  "queue.commit.trial": (p, h) => `${p.queue}: trial merge of #${p.number} on ${p.branch}@${h.short(p.sha)}`,
+  "queue.commit.title": (p, h) => `${p.start ? "Merge" : "merge"} ${p.pr} ${h.ref(p.number, p.pr)}`,
+  "queue.commit.trial": (p, h) => `${p.queue}: trial merge of ${h.ref(p.number, p.pr)} on ${p.branch}@${h.short(p.sha)}`,
   "queue.commit.body": (p, h) => `Merge queue re-ran CI on ${p.branch}@${h.short(p.sha)} and it passed: ${p.url ?? ""}`,
   "queue.commit.waived": (p) => `AI review waived: \`${p.by ?? "?"}\` posted \`${p.cmd}\`${p.at ? ` at ${p.at}` : ""}; extra approvals from others were required instead.`,
 };

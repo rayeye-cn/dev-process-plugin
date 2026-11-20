@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 
 import { assertCli, FINDING_TOKEN, findingFormat, NONE_TOKEN, parseFindings, saysNone } from "./findings.mjs";
-import { t } from "./messages/index.mjs";
+import { changeRef, t } from "./messages/index.mjs";
 import { DEFAULTS } from "./policy.mjs";
 
 /** At most this many findings are asked for per case. */
@@ -120,9 +120,9 @@ export function renderEval(cases, scores, sum, when, { lang, pr = "PR", casesFil
   const byId = new Map(cases.map((c) => [c.id, c]));
   const rows = scores.map((s) => {
     const c = byId.get(s.id);
-    if (s.missing) return `| ${s.id} | ${c.kind} | #${c.introducingPr} | ${t(lang, "eval.row.missing")} | — |`;
-    if (s.kind === "clean") return `| ${s.id} | clean | #${c.introducingPr} | ${t(lang, "eval.row.clean", { n: s.falsePositives })} | ${s.findings} |`;
-    return `| ${s.id} | bug | #${c.introducingPr} | ${t(lang, "eval.row.bug", { hit: s.hit, fileHit: s.fileHit, file: c.file, lines: c.lines })} | ${s.findings} |`;
+    if (s.missing) return `| ${s.id} | ${c.kind} | ${changeRef(c.introducingPr, pr)} | ${t(lang, "eval.row.missing")} | — |`;
+    if (s.kind === "clean") return `| ${s.id} | clean | ${changeRef(c.introducingPr, pr)} | ${t(lang, "eval.row.clean", { n: s.falsePositives })} | ${s.findings} |`;
+    return `| ${s.id} | bug | ${changeRef(c.introducingPr, pr)} | ${t(lang, "eval.row.bug", { hit: s.hit, fileHit: s.fileHit, file: c.file, lines: c.lines })} | ${s.findings} |`;
   });
   return [
     t(lang, "eval.report.title", { when }),

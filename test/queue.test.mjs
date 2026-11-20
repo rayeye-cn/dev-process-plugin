@@ -30,10 +30,10 @@ describe("merge-commit title keeps the Conventional-Commits shape", () => {
     assert.equal(queue.mergeCommitTitle("feat(api)!: drop v1", 9, { lang: "en" }), "feat(api)!: merge PR #9 drop v1");
   });
 
-  it("without a type prefix ⇒ 'Merge PR #N <title>'; the PR/MR term is the forge's", () => {
+  it("without a type prefix ⇒ 'Merge PR #N <title>'; the term and the reference are the forge's (GitLab: MR !N)", () => {
     assert.equal(queue.mergeCommitTitle("any title", 7), "合并 PR #7 any title");
     assert.equal(queue.mergeCommitTitle("any title", 7, { lang: "en" }), "Merge PR #7 any title");
-    assert.equal(queue.mergeCommitTitle("  any title ", 3, { lang: "zh", pr: "MR" }), "合并 MR #3 any title");
+    assert.equal(queue.mergeCommitTitle("  any title ", 3, { lang: "zh", pr: "MR" }), "合并 MR !3 any title");
   });
 });
 

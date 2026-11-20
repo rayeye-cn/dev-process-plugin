@@ -21,7 +21,7 @@ test("no key is defined by two modules", () => {
 });
 
 test("function messages render with empty params without throwing", () => {
-  const h = { zh: true, list: (x = []) => x.join(), mentions: (x = []) => x.join(), join: (x = []) => x.join(), short: (s) => String(s ?? ""), tr: () => "" };
+  const h = { zh: true, list: (x = []) => x.join(), mentions: (x = []) => x.join(), join: (x = []) => x.join(), short: (s) => String(s ?? ""), ref: (n) => `#${n}`, tr: () => "" };
   for (const m of Object.values(MODULES)) {
     for (const lang of LANGUAGES) {
       for (const [k, v] of Object.entries(m[lang])) {

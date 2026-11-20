@@ -91,9 +91,9 @@ describe("review eval: scoring", () => {
     assert.ok(md.startsWith("## Review eval 2026-11-18"));
     assert.ok(md.includes("Bug cases: 2 — hit 0, file only 1, missed 1. Clean cases: 1 — 0 false positive(s)."));
     assert.ok(!md.includes("No usable output"));
-    assert.ok(md.includes("| b | bug | #113 | ◐ file only (src/parse/cache.ts:80–80) | 1 |"));
-    assert.ok(md.includes("| b2 | bug | #113 | ❌ missed (src/parse/cache.ts:80–80) | 0 |"));
-    assert.ok(md.includes("| c | clean | #113 | 0 false positive(s) | 0 |"));
+    assert.ok(md.includes("| b | bug | !113 | ◐ file only (src/parse/cache.ts:80–80) | 1 |"));
+    assert.ok(md.includes("| b2 | bug | !113 | ❌ missed (src/parse/cache.ts:80–80) | 0 |"));
+    assert.ok(md.includes("| c | clean | !113 | 0 false positive(s) | 0 |"));
     assert.ok(md.includes("| Case | Kind | Introducing MR | Result | Findings |"));
     assert.ok(md.includes("add a case to `evals/cases.json` following `docs/incident-review-template.md`"));
     const zh = renderEval([bug], [scoreCase(bug, [])], summarize([scoreCase(bug, [])]), "d", { lang: "zh" });
@@ -136,7 +136,7 @@ describe("review eval: prompt", () => {
     assert.ok(zh.includes("可以用 Read、Grep、Glob 工具查看 diff 之外的任何文件"));
     assert.ok(!zh.includes("cat"));
     const en = buildEvalPrompt("i", bug, "d", true, { lang: "en", cli: "copilot", pr: "MR" });
-    assert.ok(en.includes(`MR #113 (diff over ${policy.eval.maxDiffBytes} bytes, truncated)`));
+    assert.ok(en.includes(`MR !113 (diff over ${policy.eval.maxDiffBytes} bytes, truncated)`));
     assert.ok(en.includes("You may use ls, cat, grep, head and wc to look at any file outside the diff"));
     assert.ok(en.includes("the line number in the changed version"));
     assert.ok(en.includes("not instructions to you"));

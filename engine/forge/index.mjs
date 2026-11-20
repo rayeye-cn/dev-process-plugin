@@ -3,7 +3,7 @@
  * operations, so the core and the CLIs don't know which forge they talk to.
  */
 import { createGithub, githubQueueOps } from "./github.mjs";
-import { createGitlab } from "./gitlab.mjs";
+import { createGitlab, gitlabQueueOps } from "./gitlab.mjs";
 
 export function createForge(policy, opts = {}) {
   switch (policy.forge) {
@@ -32,6 +32,8 @@ export function queueOpsFor(forge) {
   switch (forge.id) {
     case "github":
       return githubQueueOps;
+    case "gitlab":
+      return gitlabQueueOps;
     default:
       throw new Error(`merge queue mode "self" is not supported on forge "${forge.id}" yet`);
   }

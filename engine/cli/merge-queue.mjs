@@ -121,8 +121,8 @@ async function buildCandidate(ctx, base, pr) {
   await ops.deleteBranch(forge, ref).catch(() => {}); // left over by a killed run
   await ops.createBranch(forge, ref, base);
   try {
-    const message = t(lang, "queue.commit.trial", { queue: policy.names.queueContext, branch, sha: base, number: pr.number });
-    const sha = await ops.mergeIntoBranch(forge, ref, pr.headSha, message);
+    const message = t(lang, "queue.commit.trial", { queue: policy.names.queueContext, branch, sha: base, number: pr.number, pr: forge.prTerm });
+    const sha = await ops.mergeIntoBranch(forge, ref, pr.headSha, message, { number: pr.number, base });
     if (sha) return { ref, sha };
   } catch (e) {
     await ops.deleteBranch(forge, ref).catch(() => {});
@@ -169,7 +169,7 @@ async function resetStale(ctx, open) {
 async function closeLinkedIssues(ctx, number, mergeSha) {
   const { forge, ops, lang, log } = ctx;
   for (const n of issuesToClose(await ops.closingIssues(forge, number), forge.repo)) {
-    await forge.postComment(n, t(lang, "queue.comment.issueClosed", { number, sha: mergeSha }));
+    await forge.postComment(n, t(lang, "queue.comment.issueClosed", { number, sha: mergeSha, pr: forge.prTerm }));
     await ops.closeIssue(forge, n);
     log(`  closed linked issue #${n}`);
   }

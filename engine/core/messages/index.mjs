@@ -22,6 +22,11 @@ export const LANGUAGES = Object.freeze(["zh", "en"]);
 
 const CATALOG = Object.fromEntries(LANGUAGES.map((lang) => [lang, Object.assign({}, ...Object.values(MODULES).map((m) => m[lang]))]));
 
+/** How the forge cites a change: `#12` for a PR, `!12` for a GitLab MR (where `#12` means issue 12). */
+export function changeRef(number, pr = "PR") {
+  return `${pr === "MR" ? "!" : "#"}${number}`;
+}
+
 export function helpers(lang) {
   const zh = lang === "zh";
   return {
@@ -34,6 +39,8 @@ export function helpers(lang) {
     mentions: (logins) => logins.map((l) => `@${l}`).join(zh ? "、" : ", "),
     join: (parts) => parts.join(zh ? "；" : "; "),
     short: (sha, n = 7) => String(sha ?? "").slice(0, n),
+    /** How the forge cites a change: `#12` (GitHub PR) or `!12` (GitLab MR; `#12` would be issue 12 there). */
+    ref: (number, pr = "PR") => changeRef(number, pr),
     /** Render a nested `{ code, params }` item in the same language. */
     tr: (item) => t(lang, item.code, item.params),
   };

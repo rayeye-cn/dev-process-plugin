@@ -105,6 +105,109 @@ export function threadsFrom(discussions, { headSha, changedPaths, isBotLogin }) 
   return out;
 }
 
+/* ───────────── merge queue, mode "self" (cli/merge-queue.mjs): plain functions of the forge, like githubQueueOps ───────────── */
+
+const projectPath = (forge) => `/projects/${encodeURIComponent(forge.repo)}`;
+const mrPath = (forge, iid) => `${projectPath(forge)}/merge_requests/${iid}`;
+const branchPath = (forge, branch) => `${projectPath(forge)}/repository/branches/${encodeURIComponent(branch)}`;
+
+/** A merge request in the queue's normalized shape. */
+export function normalizeMr(m) {
+  return {
+    number: m.iid,
+    title: m.title ?? "",
+    state: m.state === "opened" ? "open" : m.state,
+    headSha: m.sha,
+    baseRef: m.target_branch,
+    labels: (m.labels ?? []).map((l) => ({ name: typeof l === "string" ? l : l.name })),
+    draft: Boolean(m.draft ?? m.work_in_progress),
+    fromFork: m.source_project_id !== m.project_id,
+    conflicted: Boolean(m.has_conflicts),
+    commits: null,
+  };
+}
+
+/** A pipeline as the queue's CI run: `{ id, status: completed | in_progress, conclusion, url }`. */
+export function normalizePipeline(p) {
+  if (!p) return null;
+  const done = { success: "success", failed: "failure", canceled: "cancelled", skipped: "skipped" }[p.status];
+  return { id: p.id, status: done ? "completed" : "in_progress", conclusion: done ?? null, url: p.web_url };
+}
+
+/** Pipelines this process created, per forge object: `${ref}@${sha}` → pipeline (the create call returns it). */
+const created = new WeakMap();
+
+export const gitlabQueueOps = Object.freeze({
+  defaultBranch: (forge) => forge.defaultBranch(),
+  openChanges: async (forge, branch) => (await forge.rest.paginate(`${projectPath(forge)}/merge_requests?state=opened&target_branch=${encodeURIComponent(branch)}`)).map(normalizeMr),
+  getChange: async (forge, iid) => normalizeMr(await forge.rest.get(mrPath(forge, iid))),
+  /** CI jobs and other statuses on a commit, as check runs (the highest id per name is the latest). */
+  checkRuns: (forge, sha) => forge.checkRuns(sha),
+  latestStatus: async (forge, sha, context) => (await forge.statusesOf(sha)).find((s) => s.context === context) ?? null,
+  removeLabel: (forge, iid, label) => forge.rest.put(mrPath(forge, iid), { remove_labels: label }),
+  branchSha: async (forge, branch) => (await forge.rest.get(branchPath(forge, branch))).commit.id,
+  createBranch: (forge, branch, sha) => forge.rest.post(`${projectPath(forge)}/repository/branches?branch=${encodeURIComponent(branch)}&ref=${sha}`),
+  deleteBranch: (forge, branch) => forge.rest.delete(branchPath(forge, branch)),
+  /**
+   * The temporary branch becomes "target branch + this merge request": GitLab computes that merge itself
+   * (`refs/merge-requests/:iid/merge`, refreshed by `GET …/merge_ref`); the branch is re-created at that commit. The
+   * merge must sit on the commit the branch was created at (`base`); if the target branch moved in between, the merge is
+   * computed once more, then this run gives up (the next run re-tests). A merge GitLab cannot compute ⇒ null (conflict).
+   */
+  async mergeIntoBranch(forge, branch, head, _message, { number, base } = {}) {
+    if (!number || !base) throw new Error("gitlab mergeIntoBranch needs the merge request number and the base commit");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let ref;
+      try {
+        ref = await forge.rest.get(`${mrPath(forge, number)}/merge_ref`);
+      } catch (e) {
+        if (e.status === 400) return null; // "Merge request is not mergeable"
+        throw e;
+      }
+      const sha = ref?.commit_id ?? ref?.id;
+      const commit = await forge.rest.get(`${projectPath(forge)}/repository/commits/${sha}`);
+      const [first, second] = commit.parent_ids ?? [];
+      if (first !== base) continue;
+      if (second !== head) throw new Error(`the merge ref of !${number} is not on its head ${head.slice(0, 7)} (a push came in); the next run retries`);
+      await forge.rest.delete(branchPath(forge, branch)).catch(() => {});
+      await gitlabQueueOps.createBranch(forge, branch, sha);
+      return sha;
+    }
+    throw new Error(`the target branch moved while the candidate for !${number} was built; the next run retries`);
+  },
+  /**
+   * Start a pipeline on `ref` for one of the process's tasks (`workflow` is the task name: the gate, CI, the queue), with
+   * the inputs as `DEV_PROCESS_<NAME>` variables. Runs as the bot.
+   */
+  async dispatchWorkflow(forge, workflow, ref, inputs = {}) {
+    const variables = [{ key: "DEV_PROCESS_TASK", value: workflow }, ...Object.entries(inputs).map(([k, v]) => ({ key: `DEV_PROCESS_${k.toUpperCase()}`, value: String(v) }))];
+    const p = await forge.rest.post(`${projectPath(forge)}/pipeline`, { ref, variables });
+    if (!created.has(forge)) created.set(forge, new Map());
+    created.get(forge).set(`${ref}@${p.sha}`, p);
+    return p;
+  },
+  /** The pipeline dispatchWorkflow created on `branch` for `sha` (GitLab returns it from the create call). */
+  findDispatchedRun: async (forge, _workflow, branch, sha) => normalizePipeline(created.get(forge)?.get(`${branch}@${sha}`) ?? null),
+  getRun: async (forge, id) => normalizePipeline(await forge.rest.get(`${projectPath(forge)}/pipelines/${id}`)),
+  /**
+   * Merge at exactly `sha` (GitLab refuses when the head moved). `method`: "merge" (the project's merge method) or
+   * "squash". Title and message become the merge commit message.
+   */
+  async mergeChange(forge, iid, { sha, method, title, message }) {
+    const m = await forge.rest.put(`${mrPath(forge, iid)}/merge`, {
+      sha,
+      squash: method === "squash",
+      merge_commit_message: message ? `${title}\n\n${message}` : title,
+      ...(method === "squash" ? { squash_commit_message: message ? `${title}\n\n${message}` : title } : {}),
+    });
+    return m?.merge_commit_sha ?? m?.squash_commit_sha ?? null;
+  },
+  /** GitLab closes the issues an MR names (`Closes #n`) itself when it merges, whoever merges: nothing to do. */
+  closingIssues: async () => [],
+  closeIssue: (forge, iid) => forge.rest.put(`${projectPath(forge)}/issues/${iid}`, { state_event: "close" }),
+  parentOf: async (forge, sha) => (await forge.rest.get(`${projectPath(forge)}/repository/commits/${sha}`)).parent_ids?.[0] ?? null,
+});
+
 export function createGitlab({ repo, url, env = process.env, fetch: fetchImpl = globalThis.fetch } = {}) {
   const API = (env.CI_API_V4_URL || env.GITLAB_API_URL || (url ? `${String(url).replace(/\/+$/, "")}/api/v4` : "")).replace(/\/+$/, "");
   if (!API) throw new Error("GitLab API URL unknown: set CI_API_V4_URL / GITLAB_API_URL or gitlab.url in the configuration");
