@@ -22,3 +22,12 @@ test("the marketplace lists this plugin from the repository root", () => {
   assert.equal(entry.source, "./");
   assert.doesNotMatch(market.name, /^(claude-plugins-official|claude-code-plugins|claudeai-)/);
 });
+
+test("SKILL.md bodies contain no `$` except ${CLAUDE_PLUGIN_ROOT} / ${CLAUDE_SKILL_DIR} (skills substitute $0, $ARGUMENTS, $name)", async () => {
+  const { readdirSync } = await import("node:fs");
+  for (const skill of readdirSync(new URL("../skills/", import.meta.url))) {
+    const text = readFileSync(new URL(`../skills/${skill}/SKILL.md`, import.meta.url), "utf8");
+    const stray = text.replace(/\$\{CLAUDE_(PLUGIN_ROOT|SKILL_DIR)\}/g, "").match(/.{0,30}\$.{0,30}/g);
+    assert.equal(stray, null, `${skill}: ${stray}`);
+  }
+});

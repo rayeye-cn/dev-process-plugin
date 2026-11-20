@@ -26,7 +26,7 @@ Run and check:
 - `node --version` is 24 or newer (the engine uses `fetch` and `path.matchesGlob`).
 - `gh auth status` (GitHub). If not logged in, ask the user to run `! gh auth login` themselves.
 
-If the remote is a GitLab host: tell the user GitLab support is in development and stop. If it is neither github.com nor GitLab, treat it as GitHub Enterprise Server and say so.
+Only github.com is supported in this version. If the remote's host is anything else — a GitLab instance (self-managed GitLab often has a host name without "gitlab" in it) or GitHub Enterprise Server — tell the user that support for their host is in development and stop.
 
 ## 2. Detect
 
@@ -39,7 +39,7 @@ It prints `{ facts, proposal }`. `proposal` has the answers shape (see `<plugin>
 Show the proposal as a short summary, then ask (AskUserQuestion, at most 4 questions per call, recommended option first):
 
 1. **Project language** (zh / en) for everything the team reads: CLAUDE.md, PR template, review instructions, gate comments, docs. Default: `facts.language`.
-2. **AI reviewer**: GitHub Copilot code review. It needs the organization's Copilot code review policy: reviews without a license, billed to the organization, an AI-credit budget above $0 — reviews cost money, say so. **In this version Copilot is the only reviewer**; Claude as the reviewer arrives in the next version (the renderer refuses `reviewer: "claude"` until then — tell the user if they ask).
+2. **AI reviewer**: GitHub Copilot code review. It needs the organization's Copilot code review policy: reviews without a license, billed to the organization, an AI-credit budget above zero — reviews cost money, say so. **In this version Copilot is the only reviewer**; Claude as the reviewer arrives in the next version (the renderer refuses `reviewer: "claude"` until then — tell the user if they ask).
 3. **Merge queue**: `self` — the built-in queue that re-runs CI on the latest default branch before merging. The forge's native merge queue is not supported yet even where `facts.remote.nativeQueue` is true (the renderer refuses `queue.mode: "native"`); mention it as a later option when it applies.
 4. **Loops** (multi-select): AI risk classifier (second opinion, can only raise a tier), nightly AI sweep (needs security paths), review eval (replays past bugs weekly), weekly metrics.
 
@@ -84,7 +84,7 @@ Walk the user through `docs/dev-process/review-setup.md`:
 1. Reviewer setup (Copilot policies and budget, or the `ANTHROPIC_API_KEY` secret and the Claude GitHub App).
 2. Self-hosted runners, if configured.
 3. A test pull request: every required check (`checks`, `tests`, the release gate when present, `risk-gate`, and `merge-queue` after adding the queue label) shows a result.
-4. Only then, with the user's yes: `node <repo>/.dev-process/engine/cli/apply-protection.mjs --dry-run`, show the output, then without `--dry-run` (needs repository admin; the user can run `! GH_TOKEN=$(gh auth token) node .dev-process/engine/cli/apply-protection.mjs` themselves).
+4. Only then, with the user's yes: `node <repo>/.dev-process/engine/cli/apply-protection.mjs --dry-run`, show the output, then without `--dry-run` (needs repository admin). The engine reads the token from `GH_TOKEN`: when the user runs it themselves, tell them to pass their `gh auth token` output as `GH_TOKEN` to `node .dev-process/engine/cli/apply-protection.mjs` (prefix the command with `!` in this session).
 5. `node <repo>/.dev-process/engine/cli/doctor.mjs --remote` — everything green.
 
 End with a short summary of what is enforced now, what still depends on the admin steps, and that `/dev-process:doctor` re-checks the setup any time.

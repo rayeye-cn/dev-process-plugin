@@ -21,8 +21,9 @@ English: [README.md](README.md).
 
 ## 支持范围
 
-- **代码托管**：GitHub.com、GitHub Enterprise Server、私有化部署的 GitLab，Free/CE、Premium、Ultimate 都支持，版本要 ≥ 17.11。档位会自动识别，生成的文档里写明每一档能强制哪些规则、不能强制哪些。
-- **AI 评审**：GitHub Copilot（仅限 GitHub）或 Claude。
+- **代码托管**：GitHub.com。计划支持：GitHub Enterprise Server、私有化部署的 GitLab（Free/CE、Premium、Ultimate，版本 ≥ 17.11，自动识别档位，生成的文档里写明每一档能强制哪些规则）。
+- **AI 评审**：GitHub Copilot。计划支持：Claude（GitHub 上用 `anthropics/claude-code-action`，GitLab 上用 Claude CLI 作业）。
+- **合并队列**：自建队列。计划支持：套餐允许时用 GitHub 原生合并队列，GitLab 用合并列车。
 - **语言**：中文或英文，初始化时选。
 
 ## 安装（发布后）

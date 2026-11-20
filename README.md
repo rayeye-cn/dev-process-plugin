@@ -21,8 +21,9 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 
 ## Supported
 
-- **Forges:** GitHub.com, GitHub Enterprise Server, self-managed GitLab (Free/CE, Premium, Ultimate; ≥ 17.11). The tier is detected; what each tier can enforce is stated in the generated docs.
-- **AI reviewer:** GitHub Copilot (GitHub only) or Claude.
+- **Forges:** GitHub.com. Planned: GitHub Enterprise Server, self-managed GitLab (Free/CE, Premium, Ultimate; ≥ 17.11, tier detected, with what each tier can enforce stated in the generated docs).
+- **AI reviewer:** GitHub Copilot. Planned: Claude (`anthropics/claude-code-action` on GitHub, a Claude CLI job on GitLab).
+- **Merge queue:** the built-in queue. Planned: GitHub's native merge queue where the plan allows it, GitLab merge trains.
 - **Language:** Chinese or English, chosen at init.
 
 ## Install (once released)

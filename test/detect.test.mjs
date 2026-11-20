@@ -33,6 +33,7 @@ describe("helpers", () => {
     assert.equal(repoFromRemote("https://gitlab.example.com/a/b.git"), null);
     assert.equal(hostOf("git@gitlab.example.com:a/b.git"), "gitlab.example.com");
     assert.equal(hostOf("https://user@ghe.corp.com/a/b"), "ghe.corp.com");
+    assert.equal(hostOf("https://github.com/a/b"), "github.com");
   });
 
   it("language share", () => {

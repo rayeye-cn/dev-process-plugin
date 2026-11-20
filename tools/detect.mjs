@@ -121,7 +121,8 @@ export function detectLocal(target) {
   const files = new Set(readdirSync(root));
   const remoteUrl = git(root, ["remote", "get-url", "origin"]);
   const host = hostOf(remoteUrl);
-  const forge = !host ? "github" : host === "github.com" ? "github" : /gitlab/i.test(host) ? "gitlab" : "github";
+  // Only github.com is certain from a host name; a self-managed GitLab or a GHES host can be called anything.
+  const forge = !host || host === "github.com" ? "github" : /gitlab/i.test(host) ? "gitlab" : "unknown";
   const head = git(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
   const defaultBranch = head ? head.replace(/^origin\//, "") : git(root, ["branch", "--show-current"]) || "main";
   const pkg = readJson(join(root, "package.json"));
