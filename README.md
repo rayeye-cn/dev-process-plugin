@@ -53,3 +53,7 @@ npm test          # node:test, zero dependencies (Node ≥ 24)
 npm run validate  # claude plugin validate --strict .
 claude --plugin-dir .   # load the plugin for one session
 ```
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).

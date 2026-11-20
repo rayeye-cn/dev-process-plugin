@@ -53,3 +53,7 @@ npm test          # node:test，零依赖（Node ≥ 24）
 npm run validate  # claude plugin validate --strict .
 claude --plugin-dir .   # 只在当前这一次会话里加载插件
 ```
+
+## 许可证
+
+GPL-3.0-or-later，全文见 [LICENSE](LICENSE)。

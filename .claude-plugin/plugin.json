@@ -9,7 +9,7 @@
   },
   "homepage": "https://github.com/rayeye-cn/dev-process-plugin",
   "repository": "https://github.com/rayeye-cn/dev-process-plugin",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "keywords": [
     "code-review",
     "risk-gate",
