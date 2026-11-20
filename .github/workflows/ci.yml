@@ -55,4 +55,6 @@ jobs:
       - name: actionlint
         run: |
           bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
-          ./actionlint -color "$RUNNER_TEMP"/rendered/*/.github/workflows/*.yml
+          # `copilot-requests: write` is a real GitHub permission (the Copilot CLI needs it) that this actionlint
+          # version does not know yet; ignore exactly that message.
+          ./actionlint -color -ignore 'unknown permission scope "copilot-requests"' "$RUNNER_TEMP"/rendered/*/.github/workflows/*.yml
