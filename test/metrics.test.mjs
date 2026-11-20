@@ -5,10 +5,10 @@ import { basename, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { collectMetrics, definitionsPath, publishReport, searchAll } from "../engine/cli/metrics.mjs";
+import { collectMetrics, definitionsPath, publishReport } from "../engine/cli/metrics.mjs";
 import { WAIVER_TRAILER } from "../engine/core/gate.mjs";
 import { aggregate, percentile, prMetrics, renderReport, threadOutcome, tierOf, UNTIERED } from "../engine/core/metrics.mjs";
-import { createGithub } from "../engine/forge/github.mjs";
+import { createGithub, searchAll } from "../engine/forge/github.mjs";
 import { copilot } from "../engine/reviewer/copilot.mjs";
 import { AUTHOR, policy } from "./helpers.mjs";
 

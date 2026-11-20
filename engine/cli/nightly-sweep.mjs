@@ -17,7 +17,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { parseFindings, reviewInstructions, validateFindings } from "../core/findings.mjs";
 import { loadPolicy } from "../core/policy.mjs";
 import { areaForDate, buildSweepPrompt, findingsInArea, isDuplicate, issueFor, markersIn } from "../core/sweep.mjs";
-import { createForge } from "../forge/index.mjs";
+import { createForge, issuesOf } from "../forge/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const USAGE = "usage: nightly-sweep.mjs prompt [--area <glob>] [--date YYYY-MM-DD] [--cli copilot|claude] | parse --area <glob> < out.txt | file-issues [--repo owner/name] --area <glob> findings.json";
@@ -27,30 +27,15 @@ const LABEL_COLOR = "d93f0b";
 const prTerm = (policy) => (policy.forge === "gitlab" ? "MR" : "PR");
 
 /**
- * Issue calls the sweep needs. No forge method covers issues yet, so this goes through the GitHub adapter's REST client.
- * Label creation errors are ignored (it usually exists already; creating an issue with the label still works).
- */
-function issueApi(forge) {
-  if (forge.id !== "github") throw new Error(`nightly-sweep: filing issues on forge "${forge.id}" is not supported yet`);
-  const base = `/repos/${forge.owner}/${forge.name}`;
-  return {
-    ensureLabel: (name, color) => forge.rest.post(`${base}/labels`, { name, color }).catch(() => {}),
-    /** Every issue with the label, open and closed (a closed one means "already looked at"). */
-    withLabel: (label) => forge.rest.paginate(`${base}/issues?labels=${encodeURIComponent(label)}&state=all`),
-    create: (issue) => forge.rest.post(`${base}/issues`, issue),
-  };
-}
-
-/**
  * File one issue per new finding; skip findings near one already filed (closed issues included) or filed earlier in
  * this run. Dedup is "read, then create", not atomic: the workflow must not run two sweeps at once.
  * @returns the number of issues created
  */
 export async function fileIssues({ forge, policy, area, findings, log = console.log }) {
   const label = policy.names.sweepLabel;
-  const api = issueApi(forge);
+  const api = issuesOf(forge);
   await api.ensureLabel(label, LABEL_COLOR);
-  const existing = await api.withLabel(label);
+  const existing = await api.withLabel(label, "all");
   const known = existing.flatMap((i) => markersIn(i.body, label));
   let created = 0;
   for (const f of findings) {

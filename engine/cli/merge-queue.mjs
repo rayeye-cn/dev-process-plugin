@@ -65,83 +65,13 @@ import {
   queueOrder,
   readiness,
 } from "../core/queue.mjs";
-import { createForge } from "../forge/index.mjs";
+import { createForge, queueOpsFor } from "../forge/index.mjs";
 import { reviewerFor } from "../reviewer/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 import { judgeChange } from "./risk-gate.mjs";
 
 const item = (code, params = {}) => ({ code, params });
 const short = (sha) => String(sha ?? "?").slice(0, 7);
-
-/* ─────────────── GitHub-specific calls (the GitLab adapter will lift these into the forge) ─────────────── */
-
-const repoPath = (forge) => `/repos/${forge.owner}/${forge.name}`;
-
-/** A pull request in the queue's normalized shape. `conflicted` and `commits` need the single-PR endpoint. */
-export function normalizePull(forge, p) {
-  return {
-    number: p.number,
-    title: p.title ?? "",
-    state: p.state,
-    headSha: p.head?.sha,
-    baseRef: p.base?.ref,
-    labels: (p.labels ?? []).map((l) => ({ name: l.name })),
-    draft: Boolean(p.draft),
-    fromFork: p.head?.repo?.full_name !== forge.repo,
-    conflicted: p.mergeable_state === "dirty",
-    commits: p.commits ?? null,
-  };
-}
-
-const normalizeRun = (r) => (r ? { id: r.id, status: r.status, conclusion: r.conclusion, url: r.html_url } : null);
-
-const CLOSING_ISSUES_QUERY = `query($o:String!,$n:String!,$pr:Int!){ repository(owner:$o,name:$n){ pullRequest(number:$pr){
-  closingIssuesReferences(first:20){ nodes{ number state repository{ nameWithOwner } } } } } }`;
-
-export const githubQueueOps = Object.freeze({
-  defaultBranch: async (forge) => (await forge.rest.get(repoPath(forge))).default_branch,
-  openChanges: async (forge, branch) => (await forge.rest.paginate(`${repoPath(forge)}/pulls?state=open&base=${encodeURIComponent(branch)}`)).map((p) => normalizePull(forge, p)),
-  getChange: async (forge, number) => normalizePull(forge, await forge.rest.get(`${repoPath(forge)}/pulls/${number}`)),
-  /** Check runs on a commit: `{ name, id, status, conclusion }`. */
-  checkRuns: async (forge, sha) => (await forge.rest.get(`${repoPath(forge)}/commits/${sha}/check-runs?per_page=100`)).check_runs ?? [],
-  /** The latest status of one context on a commit (combined view), or null. */
-  latestStatus: async (forge, sha, context) => (await forge.rest.get(`${repoPath(forge)}/commits/${sha}/status`)).statuses?.find((s) => s.context === context) ?? null,
-  removeLabel: (forge, number, label) => forge.rest.delete(`${repoPath(forge)}/issues/${number}/labels/${encodeURIComponent(label)}`),
-  branchSha: async (forge, branch) => (await forge.rest.get(`${repoPath(forge)}/git/ref/heads/${branch}`)).object.sha,
-  createBranch: (forge, branch, sha) => forge.rest.post(`${repoPath(forge)}/git/refs`, { ref: `refs/heads/${branch}`, sha }),
-  deleteBranch: (forge, branch) => forge.rest.delete(`${repoPath(forge)}/git/refs/heads/${branch}`),
-  /** Merge `head` into `branch` on the server; the new sha, or null on a conflict. */
-  async mergeIntoBranch(forge, branch, head, message) {
-    try {
-      const merged = await forge.rest.post(`${repoPath(forge)}/merges`, { base: branch, head, commit_message: message });
-      return merged?.sha ?? (await githubQueueOps.branchSha(forge, branch)); // 204: already contained
-    } catch (e) {
-      if (e.status === 409) return null;
-      throw e;
-    }
-  },
-  dispatchWorkflow: (forge, workflow, ref, inputs) => forge.rest.post(`${repoPath(forge)}/actions/workflows/${workflow}/dispatches`, inputs ? { ref, inputs } : { ref }),
-  /** The run a dispatch started: on `branch`, for `sha`, created after `since` (ms). */
-  async findDispatchedRun(forge, workflow, branch, sha, since) {
-    const runs = await forge.rest.get(`${repoPath(forge)}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(branch)}&event=workflow_dispatch&per_page=10`);
-    return normalizeRun(runs.workflow_runs?.find((r) => r.head_sha === sha && Date.parse(r.created_at) >= since));
-  },
-  getRun: async (forge, id) => normalizeRun(await forge.rest.get(`${repoPath(forge)}/actions/runs/${id}`)),
-  /** Merge the change; the merged commit's sha (or null). Throws when the forge refuses. */
-  mergeChange: async (forge, number, { sha, method, title, message }) =>
-    (await forge.rest.put(`${repoPath(forge)}/pulls/${number}/merge`, { merge_method: method, sha, commit_title: title, commit_message: message }))?.sha ?? null,
-  async closingIssues(forge, number) {
-    const data = await forge.graphql(CLOSING_ISSUES_QUERY, { o: forge.owner, n: forge.name, pr: Number(number) });
-    return data.repository.pullRequest.closingIssuesReferences.nodes;
-  },
-  closeIssue: (forge, number) => forge.rest.patch(`${repoPath(forge)}/issues/${number}`, { state: "closed", state_reason: "completed" }),
-  parentOf: async (forge, sha) => (await forge.rest.get(`${repoPath(forge)}/commits/${sha}`)).parents?.[0]?.sha ?? null,
-});
-
-function opsFor(forge) {
-  if (forge.id === "github") return githubQueueOps;
-  throw new Error(`merge queue mode "self" is not supported on forge "${forge.id}" yet`);
-}
 
 /* ───────────────────────────── actions ───────────────────────────── */
 
@@ -351,7 +281,7 @@ export async function processOne(ctx, pr) {
  * @param sleep / now  injectable for tests (the CI poll loop).
  */
 export async function runQueue({ forge, policy, reviewer, dryRun = false, env = process.env, log = console.log, sleep = delay, now = Date.now }) {
-  const ops = opsFor(forge);
+  const ops = queueOpsFor(forge);
   const branch = await ops.defaultBranch(forge);
   const ctx = { forge, policy, reviewer, ops, branch, dryRun, env, log, sleep, now, lang: policy.language };
   const open = await ops.openChanges(forge, branch);

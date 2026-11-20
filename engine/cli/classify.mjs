@@ -27,17 +27,10 @@ import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const USAGE = "usage: classify.mjs prompt --pr <number> [--repo owner/name] | classify.mjs parse [--sha <head sha>] < out.txt";
 
-/**
- * The change's diff and title. Uses `forge.loadDiff(number)` when the forge has one; otherwise the GitHub REST calls
- * (diff media type + the PR itself).
- * @returns `{ diff, title, headSha }`
- */
+/** The change's diff and title from the forge: `{ diff, title, headSha }`. */
 export async function loadDiff(forge, number) {
-  if (typeof forge.loadDiff === "function") return forge.loadDiff(number);
-  if (forge.id !== "github") throw new Error(`classify: forge "${forge.id}" has no loadDiff yet`);
-  const path = `/repos/${forge.owner}/${forge.name}/pulls/${number}`;
-  const [diff, meta] = await Promise.all([forge.rawGet(path, "application/vnd.github.diff"), forge.rest.get(path)]);
-  return { diff, title: meta?.title ?? "", headSha: meta?.head?.sha ?? null };
+  if (typeof forge.loadDiff !== "function") throw new Error(`classify: forge "${forge.id}" has no loadDiff yet`);
+  return forge.loadDiff(number);
 }
 
 /** `prompt`: the full prompt for one change, plus what was sent (for the log). */

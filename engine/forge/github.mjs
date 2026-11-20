@@ -8,6 +8,8 @@
  */
 import { execFileSync } from "node:child_process";
 
+import { latestTime as latest, mapLimit } from "./util.mjs";
+
 /** `owner/name` → `{ owner, name }`. */
 export function splitRepo(full) {
   const [owner, name] = String(full ?? "").split("/");
@@ -53,11 +55,84 @@ export async function loadReviewThreads(owner, name, pr, query) {
   }
 }
 
-/** The latest time among the arguments (ISO strings), or null. */
-const latest = (...times) => {
-  const valid = times.filter((x) => Number.isFinite(Date.parse(x ?? "")));
-  return valid.length ? valid.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a)) : null;
-};
+
+const toIssue = (i) => ({ number: i.number, title: i.title ?? "", body: i.body ?? "", state: i.state });
+
+/** All pages of a search (the search API returns at most 1,000 results). */
+export async function searchAll(rest, q) {
+  const items = [];
+  for (let page = 1; page <= 10; page++) {
+    const r = await rest.get(`/search/issues?q=${encodeURIComponent(q)}&per_page=100&page=${page}`);
+    items.push(...(r.items ?? []));
+    if (items.length >= (r.total_count ?? 0) || !(r.items ?? []).length) break;
+  }
+  return items;
+}
+
+/* ───────────── merge queue, mode "self" (cli/merge-queue.mjs): plain functions of the forge, so tests can fake REST ───────────── */
+
+const repoPath = (forge) => `/repos/${forge.owner}/${forge.name}`;
+
+/** A pull request in the queue's normalized shape. `conflicted` and `commits` need the single-PR endpoint. */
+export function normalizePull(forge, p) {
+  return {
+    number: p.number,
+    title: p.title ?? "",
+    state: p.state,
+    headSha: p.head?.sha,
+    baseRef: p.base?.ref,
+    labels: (p.labels ?? []).map((l) => ({ name: l.name })),
+    draft: Boolean(p.draft),
+    fromFork: p.head?.repo?.full_name !== forge.repo,
+    conflicted: p.mergeable_state === "dirty",
+    commits: p.commits ?? null,
+  };
+}
+
+const normalizeRun = (r) => (r ? { id: r.id, status: r.status, conclusion: r.conclusion, url: r.html_url } : null);
+
+const CLOSING_ISSUES_QUERY = `query($o:String!,$n:String!,$pr:Int!){ repository(owner:$o,name:$n){ pullRequest(number:$pr){
+  closingIssuesReferences(first:20){ nodes{ number state repository{ nameWithOwner } } } } } }`;
+
+export const githubQueueOps = Object.freeze({
+  defaultBranch: async (forge) => (await forge.rest.get(repoPath(forge))).default_branch,
+  openChanges: async (forge, branch) => (await forge.rest.paginate(`${repoPath(forge)}/pulls?state=open&base=${encodeURIComponent(branch)}`)).map((p) => normalizePull(forge, p)),
+  getChange: async (forge, number) => normalizePull(forge, await forge.rest.get(`${repoPath(forge)}/pulls/${number}`)),
+  /** Check runs on a commit: `{ name, id, status, conclusion }`. */
+  checkRuns: async (forge, sha) => (await forge.rest.get(`${repoPath(forge)}/commits/${sha}/check-runs?per_page=100`)).check_runs ?? [],
+  /** The latest status of one context on a commit (combined view), or null. */
+  latestStatus: async (forge, sha, context) => (await forge.rest.get(`${repoPath(forge)}/commits/${sha}/status`)).statuses?.find((s) => s.context === context) ?? null,
+  removeLabel: (forge, number, label) => forge.rest.delete(`${repoPath(forge)}/issues/${number}/labels/${encodeURIComponent(label)}`),
+  branchSha: async (forge, branch) => (await forge.rest.get(`${repoPath(forge)}/git/ref/heads/${branch}`)).object.sha,
+  createBranch: (forge, branch, sha) => forge.rest.post(`${repoPath(forge)}/git/refs`, { ref: `refs/heads/${branch}`, sha }),
+  deleteBranch: (forge, branch) => forge.rest.delete(`${repoPath(forge)}/git/refs/heads/${branch}`),
+  /** Merge `head` into `branch` on the server; the new sha, or null on a conflict. */
+  async mergeIntoBranch(forge, branch, head, message) {
+    try {
+      const merged = await forge.rest.post(`${repoPath(forge)}/merges`, { base: branch, head, commit_message: message });
+      return merged?.sha ?? (await githubQueueOps.branchSha(forge, branch)); // 204: already contained
+    } catch (e) {
+      if (e.status === 409) return null;
+      throw e;
+    }
+  },
+  dispatchWorkflow: (forge, workflow, ref, inputs) => forge.rest.post(`${repoPath(forge)}/actions/workflows/${workflow}/dispatches`, inputs ? { ref, inputs } : { ref }),
+  /** The run a dispatch started: on `branch`, for `sha`, created after `since` (ms). */
+  async findDispatchedRun(forge, workflow, branch, sha, since) {
+    const runs = await forge.rest.get(`${repoPath(forge)}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(branch)}&event=workflow_dispatch&per_page=10`);
+    return normalizeRun(runs.workflow_runs?.find((r) => r.head_sha === sha && Date.parse(r.created_at) >= since));
+  },
+  getRun: async (forge, id) => normalizeRun(await forge.rest.get(`${repoPath(forge)}/actions/runs/${id}`)),
+  /** Merge the change; the merged commit's sha (or null). Throws when the forge refuses. */
+  mergeChange: async (forge, number, { sha, method, title, message }) =>
+    (await forge.rest.put(`${repoPath(forge)}/pulls/${number}/merge`, { merge_method: method, sha, commit_title: title, commit_message: message }))?.sha ?? null,
+  async closingIssues(forge, number) {
+    const data = await forge.graphql(CLOSING_ISSUES_QUERY, { o: forge.owner, n: forge.name, pr: Number(number) });
+    return data.repository.pullRequest.closingIssuesReferences.nodes;
+  },
+  closeIssue: (forge, number) => forge.rest.patch(`${repoPath(forge)}/issues/${number}`, { state: "closed", state_reason: "completed" }),
+  parentOf: async (forge, sha) => (await forge.rest.get(`${repoPath(forge)}/commits/${sha}`)).parents?.[0]?.sha ?? null,
+});
 
 export function createGithub({ repo, env = process.env, fetch: fetchImpl = globalThis.fetch } = {}) {
   const API = env.GITHUB_API_URL || "https://api.github.com";
@@ -146,6 +221,78 @@ export function createGithub({ repo, env = process.env, fetch: fetchImpl = globa
     graphql,
 
     loadReviewThreads: (pr) => loadReviewThreads(owner, name, pr, graphql),
+
+    defaultBranch: async () => (await rest.get(base)).default_branch,
+
+    /** Label names of a PR. */
+    changeLabels: async (number) => ((await rest.get(`${base}/pulls/${number}`)).labels ?? []).map((l) => l.name),
+
+    /** The PR's diff and title (the classifier's input): `{ diff, title, headSha }`. */
+    async loadDiff(number) {
+      const path = `${base}/pulls/${number}`;
+      const [diff, meta] = await Promise.all([rawGet(path, "application/vnd.github.diff"), rest.get(path)]);
+      return { diff, title: meta?.title ?? "", headSha: meta?.head?.sha ?? null };
+    },
+
+    /**
+     * Issues: the sweep's findings and the eval / metrics reports. An issue is `{ number, title, body, state }`.
+     * Label creation errors are ignored (the label usually exists; creating an issue with it still works).
+     */
+    issues: {
+      ensureLabel: (label, color) => rest.post(`${base}/labels`, { name: label, color }).catch(() => {}),
+      /** Every issue with the label, open and closed by default. */
+      withLabel: async (label, state = "all") => (await rest.paginate(`${base}/issues?labels=${encodeURIComponent(label)}&state=${state}`)).map(toIssue),
+      newestOpen: async (label) => {
+        const found = await rest.get(`${base}/issues?labels=${encodeURIComponent(label)}&state=open&per_page=1`);
+        return found?.[0] ? toIssue(found[0]) : null;
+      },
+      /** `{ title, labels, body }` → the new issue's number. */
+      create: async (issue) => (await rest.post(`${base}/issues`, issue)).number,
+      update: (number, { body }) => rest.patch(`${base}/issues/${number}`, { body }),
+      comment: (number, body) => rest.post(`${base}/issues/${number}/comments`, { body }),
+    },
+
+    /** What the weekly metrics read (cli/metrics.mjs). */
+    metrics: {
+      /**
+       * PRs merged into `branch` at or after `since` (a Date), as `{ number, title, author, createdAt, mergedAt, labels,
+       * mergeSha }`. The search filters by day only, so each PR is refetched and filtered by its merge time.
+       */
+      async mergedSince(branch, since, concurrency = 4) {
+        const found = await searchAll(rest, `repo:${full} is:pr is:merged base:${branch} merged:>=${since.toISOString().slice(0, 10)}`);
+        const prs = await mapLimit(found, concurrency, (i) => rest.get(`${base}/pulls/${i.number}`));
+        return prs
+          .filter((p) => p.merged_at && Date.parse(p.merged_at) >= since.getTime())
+          .map((p) => ({ number: p.number, title: p.title ?? "", author: p.user?.login, createdAt: p.created_at, mergedAt: p.merged_at, labels: p.labels ?? [], mergeSha: p.merge_commit_sha ?? null }));
+      },
+      /** Commits on `branch` since `since` (a Date): `{ sha, message }`. */
+      commitsSince: async (branch, since) =>
+        (await rest.paginate(`${base}/commits?sha=${encodeURIComponent(branch)}&since=${since.toISOString()}`)).map((c) => ({ sha: c.sha, message: c.commit?.message ?? "" })),
+      /**
+       * Reviews, comments, threads and the merge commit's message of one merged PR (from mergedSince). No files, statuses
+       * or write access (the gate's loadChange would be wasted here).
+       * @param mergeMessages  sha → message of the default-branch commits already fetched
+       */
+      async load(pr, mergeMessages) {
+        const threads = await loadReviewThreads(owner, name, Number(pr.number), graphql);
+        const [reviews, comments] = await Promise.all([rest.paginate(`${base}/pulls/${pr.number}/reviews`), rest.paginate(`${base}/issues/${pr.number}/comments`)]);
+        // The merge commit's message (the merge queue records an AI review waiver there): look in the default-branch commits
+        // already fetched, else fetch it. A failure fails the report instead of silently reading as "not waived": the waiver
+        // count is the only record of people standing in for the AI review.
+        let mergeMessage = "";
+        if (pr.mergeSha) mergeMessage = mergeMessages.get(pr.mergeSha) ?? (await rest.get(`${base}/commits/${pr.mergeSha}`)).commit?.message ?? "";
+        return {
+          mergeMessage,
+          author: pr.author,
+          createdAt: pr.createdAt,
+          mergedAt: pr.mergedAt,
+          labels: pr.labels,
+          reviews: reviews.map((r) => ({ login: r.user?.login, type: r.user?.type, state: r.state, submittedAt: r.submitted_at, body: r.body, commitId: r.commit_id })),
+          comments: comments.map((c) => ({ login: c.user?.login, type: c.user?.type, body: c.body, createdAt: c.created_at, updatedAt: c.updated_at })),
+          threads,
+        };
+      },
+    },
 
     /** Open PR whose head is `sha` (workflow_run carries no PR for forks). */
     async findOpenPrByHead(sha) {

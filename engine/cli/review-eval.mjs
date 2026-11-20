@@ -21,7 +21,7 @@ import { buildEvalPrompt, evalUsable, loadCases, orderDiff, renderEval, renderNo
 import { reviewInstructions } from "../core/findings.mjs";
 import { t } from "../core/messages/index.mjs";
 import { loadPolicy } from "../core/policy.mjs";
-import { createForge } from "../forge/index.mjs";
+import { createForge, issuesOf } from "../forge/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
 const USAGE = "usage: review-eval.mjs list | head <id> | prompt <id> [--cli copilot|claude] | score --out-dir <dir> [--report-issue [--repo owner/name]]";
@@ -30,21 +30,17 @@ const LABEL_COLOR = "1d76db";
 /** "PR" or "MR" without creating a forge (only `score --report-issue` talks to the forge). */
 const prTerm = (policy) => (policy.forge === "gitlab" ? "MR" : "PR");
 
-/**
- * Keep one open report issue with the eval label: edit the newest open one, or create it. No forge method covers issues
- * yet, so this goes through the GitHub adapter's REST client.
- */
+/** Keep one open report issue with the eval label: edit the newest open one, or create it. */
 export async function upsertReportIssue(forge, policy, body) {
-  if (forge.id !== "github") throw new Error(`review-eval: report issues on forge "${forge.id}" are not supported yet`);
-  const base = `/repos/${forge.owner}/${forge.name}`;
+  const issues = issuesOf(forge);
   const label = policy.names.evalLabel;
-  const issues = await forge.rest.get(`${base}/issues?labels=${encodeURIComponent(label)}&state=open&per_page=1`);
-  if (issues?.[0]) {
-    await forge.rest.patch(`${base}/issues/${issues[0].number}`, { body });
-    return issues[0].number;
+  const open = await issues.newestOpen(label);
+  if (open) {
+    await issues.update(open.number, { body });
+    return open.number;
   }
-  await forge.rest.post(`${base}/labels`, { name: label, color: LABEL_COLOR }).catch(() => {});
-  return (await forge.rest.post(`${base}/issues`, { title: t(policy.language, "eval.issue.title"), labels: [label], body })).number;
+  await issues.ensureLabel(label, LABEL_COLOR);
+  return issues.create({ title: t(policy.language, "eval.issue.title"), labels: [label], body });
 }
 
 /**

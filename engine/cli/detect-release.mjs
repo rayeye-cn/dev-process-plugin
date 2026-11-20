@@ -25,15 +25,8 @@ import { baseRefFor, changedVersions, hasLabel, isRelease, readField } from "../
 import { createForge } from "../forge/index.mjs";
 import { repoRoot, runIfMain } from "./args.mjs";
 
-/* ─────────────── GitHub-specific calls (the GitLab adapter will lift these into the forge) ─────────────── */
-
-export function githubReleaseOps(forge) {
-  const path = `/repos/${forge.owner}/${forge.name}`;
-  return {
-    defaultBranch: async () => (await forge.rest.get(path)).default_branch,
-    prLabels: async (number) => ((await forge.rest.get(`${path}/pulls/${number}`)).labels ?? []).map((l) => l.name),
-  };
-}
+/** The calls detectRelease needs from the forge (tests pass their own). */
+const releaseOps = (forge) => ({ defaultBranch: () => forge.defaultBranch(), prLabels: (number) => forge.changeLabels(number) });
 
 /* ───────────────────────────── git and files ───────────────────────────── */
 
@@ -88,7 +81,7 @@ export function labelsFromEnv(env, label) {
  */
 export async function detectRelease({ policy, env = process.env, root, git = gitRunner(root), ops = null, log = console.log }) {
   let forgeOps = ops;
-  const lazy = () => (forgeOps ??= githubReleaseOps(createForge(policy, { env })));
+  const lazy = () => (forgeOps ??= releaseOps(createForge(policy, { env })));
   const lang = policy.language;
   const label = policy.release?.label || null;
   const event = env.EVENT;
