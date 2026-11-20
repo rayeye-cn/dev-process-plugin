@@ -47,7 +47,7 @@ export function localFindings(root, policy) {
     ...checkConsistency({
       policy,
       codeowners: read(".github/CODEOWNERS"),
-      applyTo: policy.reviewer === "copilot" ? read(policy.paths.security) : null,
+      applyTo: policy.reviewer === "copilot" && policy.securityPaths.length ? read(policy.paths.security) : null,
       claudeMd: read("CLAUDE.md"),
       tracked,
     }),

@@ -221,7 +221,8 @@ function main() {
     out.facts.remote = remote;
     if (remote.reachable) {
       out.proposal.defaultBranch = remote.defaultBranch ?? out.proposal.defaultBranch;
-      out.proposal.queue = { mode: remote.nativeQueue ? "native" : "self" };
+      // The native queue is reported in facts.remote.nativeQueue but not proposed until this version supports it.
+      out.proposal.queue = { mode: "self" };
       out.proposal.people = { trustedAuthors: remote.collaborators };
     }
   }

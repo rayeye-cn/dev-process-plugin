@@ -39,8 +39,8 @@ It prints `{ facts, proposal }`. `proposal` has the answers shape (see `<plugin>
 Show the proposal as a short summary, then ask (AskUserQuestion, at most 4 questions per call, recommended option first):
 
 1. **Project language** (zh / en) for everything the team reads: CLAUDE.md, PR template, review instructions, gate comments, docs. Default: `facts.language`.
-2. **AI reviewer**: Copilot (needs the organization's Copilot code review policy: reviews without a license, billed to the organization, an AI-credit budget above $0) or Claude (needs an `ANTHROPIC_API_KEY` repository secret and the Claude GitHub App). Both cost money per review — say so.
-3. **Merge queue**: `native` only when `facts.remote.nativeQueue` is true (public org repository, Enterprise Cloud or GHES); otherwise `self` (the built-in queue that re-runs CI on the latest default branch before merging).
+2. **AI reviewer**: GitHub Copilot code review. It needs the organization's Copilot code review policy: reviews without a license, billed to the organization, an AI-credit budget above $0 — reviews cost money, say so. **In this version Copilot is the only reviewer**; Claude as the reviewer arrives in the next version (the renderer refuses `reviewer: "claude"` until then — tell the user if they ask).
+3. **Merge queue**: `self` — the built-in queue that re-runs CI on the latest default branch before merging. The forge's native merge queue is not supported yet even where `facts.remote.nativeQueue` is true (the renderer refuses `queue.mode: "native"`); mention it as a later option when it applies.
 4. **Loops** (multi-select): AI risk classifier (second opinion, can only raise a tier), nightly AI sweep (needs security paths), review eval (replays past bugs weekly), weekly metrics.
 
 Then, in follow-up questions or plain conversation:

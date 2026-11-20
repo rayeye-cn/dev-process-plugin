@@ -71,7 +71,8 @@ export function manifest(ctx, answers) {
     { out: "CLAUDE.md", kind: "section", tmpl: tmpl("common/{lang}/CLAUDE.section.md.tmpl") },
     { out: ".github/pull_request_template.md", kind: "file", tmpl: tmpl("common/{lang}/pull_request_template.md.tmpl") },
     { out: ctx.instructionsPath, kind: "file", tmpl: tmpl("common/{lang}/ai-review-instructions.md.tmpl") },
-    { out: ctx.securityPath, kind: "file", tmpl: tmpl("common/{lang}/ai-review-security.md.tmpl") },
+    // Copilot reads `applyTo` from this file's front matter: with no security paths there is nothing to apply it to.
+    { out: ctx.securityPath, kind: "file", tmpl: tmpl("common/{lang}/ai-review-security.md.tmpl"), when: (c) => !c.isCopilot || c.policy.securityPaths.length > 0 },
     { out: ".github/CODEOWNERS", kind: "file", tmpl: tmpl("common/{lang}/CODEOWNERS.tmpl") },
     { out: "docs/dev-process/review-setup.md", kind: "file", tmpl: tmpl("common/{lang}/review-setup.md.tmpl") },
     { out: "docs/dev-process/on-call.md", kind: "file", tmpl: tmpl("common/{lang}/on-call.md.tmpl") },
@@ -119,10 +120,27 @@ const readLock = (target) => {
 };
 
 /**
+ * Options the data model knows but this version cannot install yet (they would validate, render, and then fail in CI or
+ * block every pull request): refused here, at the entry point the skills and the CLI use.
+ */
+export const NOT_YET = Object.freeze([
+  { field: "reviewer", value: "claude", why: "the Claude reviewer (review workflow and gate adapter) arrives in the next plugin version" },
+  { field: "queue.mode", value: "native", why: "the forge's native merge queue needs merge_group CI and gate support that is not built yet; use \"self\"" },
+]);
+
+export function assertRenderable(answers) {
+  for (const n of NOT_YET) {
+    const v = n.field.split(".").reduce((o, k) => o?.[k], answers);
+    if (v === n.value) throw new AnswersError(`answers.${n.field}: "${n.value}" is not available yet — ${n.why}`);
+  }
+}
+
+/**
  * The plan: `{ entries: [{ path, status, kind, content?, merged? }], lock }` — nothing is written.
  * For sections, `merged` is the whole new file text.
  */
 export function plan(target, answers) {
+  assertRenderable(answers);
   const ctx = buildContext(answers);
   const lock = readLock(target);
   const entries = [];
@@ -210,7 +228,7 @@ export function verify(target, ctx, written = []) {
   return checkConsistency({
     policy: ctx.policy,
     codeowners: read(".github/CODEOWNERS"),
-    applyTo: ctx.isCopilot ? read(ctx.securityPath) : null,
+    applyTo: ctx.isCopilot && ctx.policy.securityPaths.length ? read(ctx.securityPath) : null,
     claudeMd: read("CLAUDE.md"),
     tracked: trackedFiles(target, written),
   });
@@ -252,6 +270,7 @@ async function main() {
     args = parseCli(process.argv.slice(2));
     if (!args.answers || !args.target) throw new Error("usage: render.mjs --answers <file> --target <dir> [--write] [--force <paths> | --force-all] [--json]");
     answers = validateAnswers(JSON.parse(readFileSync(args.answers, "utf8")));
+    assertRenderable(answers);
   } catch (e) {
     console.error(e instanceof AnswersError ? e.message : e.message);
     process.exitCode = 2;

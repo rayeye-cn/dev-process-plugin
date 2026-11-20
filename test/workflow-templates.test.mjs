@@ -381,7 +381,14 @@ describe("ci.yml", () => {
       const gate = jobs[rg.name];
       assert.equal(gate.prop("name"), rg.name);
       assert.equal(gate.prop("needs"), ctx.ci.hasTests ? "[detect-release, tests]" : "[detect-release]");
-      assert.equal(gate.prop("if"), "needs.detect-release.outputs.release == 'true'");
+      // Fail closed: a failed release detection runs the gate (and its first step fails) instead of skipping it into a pass.
+      const tests = ctx.ci.hasTests ? "needs.tests.result == 'success' && " : "";
+      assert.equal(gate.prop("if"), `\${{ !cancelled() && ${tests}(needs.detect-release.result != 'success' || needs.detect-release.outputs.release == 'true') }}`);
+      const failClosed = gate.steps.find((st) => stepKey(st, "if") === "needs.detect-release.result != 'success'");
+      assert.ok(failClosed, "no fail-closed step");
+      assert.match(failClosed.text, /exit 1/);
+      // before any real work: right after the fork guard (if any) and before the checkout
+      assert.ok(gate.steps.indexOf(failClosed) < gate.steps.findIndex((st) => st.text.includes("actions/checkout")));
       assert.equal(gate.prop("timeout-minutes"), String(rg.timeoutMin));
     });
 

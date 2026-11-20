@@ -73,13 +73,13 @@ describe("plan and apply", { skip: !existsSync(new URL("../templates/common/zh/C
   it("outputs that are no longer produced are removed when untouched, kept as orphans when edited", () => {
     const d = tempRepo();
     apply(d, plan(d, answers));
-    const native = { ...answers, queue: { mode: "native" }, loops: { ...answers.loops, metrics: false } };
+    const fewer = { ...answers, loops: { ...answers.loops, eval: false, metrics: false } };
     writeFileSync(join(d, ".github/workflows/review-metrics.yml"), "# edited\n");
-    const p = plan(d, native);
-    assert.equal(statusOf(p, ".github/workflows/merge-queue.yml"), "remove");
+    const p = plan(d, fewer);
+    assert.equal(statusOf(p, ".github/workflows/review-eval.yml"), "remove");
     assert.equal(statusOf(p, ".github/workflows/review-metrics.yml"), "orphan");
     apply(d, p);
-    assert.equal(existsSync(join(d, ".github/workflows/merge-queue.yml")), false);
+    assert.equal(existsSync(join(d, ".github/workflows/review-eval.yml")), false);
     assert.equal(existsSync(join(d, ".github/workflows/review-metrics.yml")), true);
   });
 
@@ -137,5 +137,24 @@ describe("the CLI, as the init skill runs it", () => {
     const e = run(withAnswers(JSON.stringify(bad)), "--write");
     assert.equal(e.code, 4, e.out);
     assert.match(e.out, /ERROR/);
+  });
+});
+
+describe("options that are not available yet", () => {
+  it("plan refuses the Claude reviewer and the native queue with a clear reason", async () => {
+    const { AnswersError } = await import("../tools/answers.mjs");
+    const d = tempRepo();
+    assert.throws(() => plan(d, { ...answers, reviewer: "claude" }), (e) => e instanceof AnswersError && /reviewer: "claude" is not available yet/.test(e.message));
+    assert.throws(() => plan(d, { ...answers, queue: { mode: "native" } }), (e) => e instanceof AnswersError && /queue\.mode: "native" is not available yet/.test(e.message));
+  });
+
+  it("Copilot without security paths: no security file, and the instructions still load", async () => {
+    const { reviewInstructions } = await import("../engine/core/findings.mjs");
+    const d = tempRepo();
+    const a = { ...answers, paths: { ...answers.paths, security: [] }, loops: { ...answers.loops, sweep: false } };
+    const p = plan(d, a);
+    assert.equal(p.entries.some((e) => e.path === ".github/instructions/security.instructions.md"), false);
+    apply(d, p);
+    assert.ok(reviewInstructions(d, p.ctx.policy).length > 100);
   });
 });

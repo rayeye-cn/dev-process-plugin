@@ -134,9 +134,10 @@ jobs:
     # After the tests: no heavy run for a PR whose tests already fail.
 {{/if}}
     needs: [detect-release{{#if ci.hasTests}}, tests{{/if}}]
-    # Skipped (which counts as passing) on every PR that is not a release; that is the case skipping is meant for. A
-    # failed need skips it too, but then that need is red: the run fails and the merge queue never merges a failed run.
-    if: needs.detect-release.outputs.release == 'true'
+    # Skipped (which counts as passing) on every PR that is not a release; that is the case skipping is meant for.
+    # Fail closed: when the release detection itself did not succeed we cannot tell, so the gate runs and fails at once
+    # (its first step) instead of being skipped into a pass.{{#if ci.hasTests}} Failed tests skip it: the tests are red already.{{/if}}
+    if: ${{ !cancelled() && {{#if ci.hasTests}}needs.tests.result == 'success' && {{/if}}(needs.detect-release.result != 'success' || needs.detect-release.outputs.release == 'true') }}
 {{#if ci.releaseGate.selfHosted}}
     # Same rule as the tests: fork PRs never run on self-hosted runners; they are judged red on a hosted runner instead.
     runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-latest"]' || '{{ ci.releaseGate.runsOn }}') }}
@@ -154,6 +155,11 @@ jobs:
           echo "::error::{{ s.forkGuardError }}"
           exit 1
 {{/if}}
+      - name: {{ s.detectFailed }}
+        if: needs.detect-release.result != 'success'
+        run: |
+          echo "::error::{{ s.detectFailedError }}"
+          exit 1
       - uses: actions/checkout@v4
         with:
           persist-credentials: false

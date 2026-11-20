@@ -42,7 +42,9 @@ export const stripFrontMatter = (text) => String(text).replace(FRONT_MATTER, "")
 /** The repository's review instructions: general instructions, then the security checklist, front matter removed. */
 export function reviewInstructions(root, policy) {
   const read = (rel) => stripFrontMatter(readFileSync(join(root, rel), "utf8")).trim();
-  return `${read(policy.paths.instructions)}\n\n${read(policy.paths.security)}`;
+  // The security checklist is optional: with no security paths, a Copilot setup has no such file.
+  const security = existsSync(join(root, policy.paths.security)) ? read(policy.paths.security) : "";
+  return security ? `${read(policy.paths.instructions)}\n\n${security}` : read(policy.paths.instructions);
 }
 
 /*

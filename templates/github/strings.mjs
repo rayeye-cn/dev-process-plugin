@@ -19,6 +19,8 @@ export const WORKFLOW_STRINGS = {
     forkGuardError: "fork 来的 PR 不在自托管 runner 上跑，请从本仓库的分支提 PR。",
     detectReleaseJob: "判断是否发版",
     detectReleaseStep: "比较版本号与发版标签",
+    detectFailed: "判断发版失败时直接判红",
+    detectFailedError: "判断是否发版这一步没有成功，无法确认这是不是发版，按发版处理并判红。修好后重跑。",
     // risk-gate.yml / risk-gate-events.yml
     gateInputPr: "要重判的 PR 号（合并队列自动填）",
     classifyJob: "AI 第二分类器",
@@ -65,6 +67,8 @@ export const WORKFLOW_STRINGS = {
     forkGuardError: "Fork PRs do not run on self-hosted runners. Open the PR from a branch of this repository.",
     detectReleaseJob: "Detect release",
     detectReleaseStep: "Compare version fields and the release label",
+    detectFailed: "Fail when the release detection failed",
+    detectFailedError: "The release detection did not succeed, so it is unknown whether this is a release. Failing closed. Fix it and re-run.",
     // risk-gate.yml / risk-gate-events.yml
     gateInputPr: "PR to re-judge (filled in by the merge queue)",
     classifyJob: "AI second classifier",
