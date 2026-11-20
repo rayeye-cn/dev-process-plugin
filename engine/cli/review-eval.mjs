@@ -3,6 +3,7 @@
  * Review eval CLI (I/O). The scoring method is in core/eval.mjs; the AI output contract in core/findings.mjs.
  *
  *   node .dev-process/engine/cli/review-eval.mjs list                              # case ids (the workflow runs them one by one)
+ *   node .dev-process/engine/cli/review-eval.mjs head <id>                         # the head sha of a case (for the read-only checkout)
  *   node .dev-process/engine/cli/review-eval.mjs prompt <id> [--cli copilot|claude] > prompt.txt   # diff of the introducing PR, from local git
  *   (cd <read-only checkout of that PR's head> && <AI CLI with read-only tools>) > out/<id>.txt
  *   node .dev-process/engine/cli/review-eval.mjs score --out-dir out [--report-issue [--repo owner/name]]
@@ -23,7 +24,7 @@ import { loadPolicy } from "../core/policy.mjs";
 import { createForge } from "../forge/index.mjs";
 import { parseArgs, repoRoot, runIfMain } from "./args.mjs";
 
-const USAGE = "usage: review-eval.mjs list | prompt <id> [--cli copilot|claude] | score --out-dir <dir> [--report-issue [--repo owner/name]]";
+const USAGE = "usage: review-eval.mjs list | head <id> | prompt <id> [--cli copilot|claude] | score --out-dir <dir> [--report-issue [--repo owner/name]]";
 const LABEL_COLOR = "1d76db";
 
 /** "PR" or "MR" without creating a forge (only `score --report-issue` talks to the forge). */
@@ -87,7 +88,7 @@ export async function score({ policy, cases, outDir, forge = null, when = new Da
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._[0];
-  if (!["list", "prompt", "score"].includes(cmd)) {
+  if (!["list", "head", "prompt", "score"].includes(cmd)) {
     console.error(USAGE);
     process.exitCode = 2;
     return;
@@ -98,6 +99,13 @@ async function main() {
 
   if (cmd === "list") {
     for (const c of cases) console.log(c.id);
+    return;
+  }
+  if (cmd === "head") {
+    const c = cases.find((x) => x.id === args._[1]);
+    if (!c) throw new Error(`no such case: ${args._[1]}`);
+    if (!/^[0-9a-f]{7,40}$/i.test(String(c.headSha))) throw new Error(`case ${c.id}: bad sha "${c.headSha}" (expected hex)`);
+    console.log(c.headSha);
     return;
   }
   if (cmd === "prompt") {

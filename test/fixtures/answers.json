@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "forge": "github",
+  "language": "zh",
+  "reviewer": "copilot",
+  "project": { "name": "Sample App", "description": "A sample web service" },
+  "repo": "acme/sample-app",
+  "defaultBranch": "main",
+  "people": { "trustedAuthors": ["alice", "bob", "carol"], "codeOwners": ["alice", "bob"], "onCall": ["alice", "bob", "carol"] },
+  "paths": {
+    "high": ["src/auth/**", "migrations/**", "package.json"],
+    "security": ["src/auth/**", ".github/**"],
+    "lowOnly": ["docs/**", "README.md"]
+  },
+  "failureModes": ["Database migrations must be reversible and must not lock large tables"],
+  "securityChecklist": ["Session tokens never appear in logs or error messages"],
+  "ci": {
+    "setup": [
+      { "uses": "actions/setup-node@v4", "with": { "node-version": 24, "cache": "npm" } },
+      { "run": "npm ci" }
+    ],
+    "checks": [{ "name": "Typecheck", "run": "npm run typecheck" }, { "name": "Lint", "run": "npm run lint" }],
+    "tests": [{ "name": "Unit tests", "run": "npm test" }],
+    "testsRunner": "hosted",
+    "releaseGate": { "name": "release-gate", "steps": [{ "run": "npm run build\nnpm run e2e" }], "runner": "self-hosted", "timeoutMin": 90 },
+    "selfHostedLabels": ["self-hosted", "macOS"]
+  },
+  "queue": { "mode": "self" },
+  "classifier": true,
+  "loops": { "sweep": true, "eval": true, "metrics": true },
+  "release": { "label": "release", "versionFiles": [{ "file": "package.json", "field": "version" }] },
+  "stagedRollout": false
+}
