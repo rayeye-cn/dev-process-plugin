@@ -72,11 +72,13 @@ ai-review:
       - .dev-process-review/review.json
       - .dev-process-review/classify.json
 
+# One at a time: two review pipelines for one head must not both post their threads before either summary exists.
 post-review:
   extends: .dev-process-bot
   environment:
     name: dev-process-bot
     action: access
+  resource_group: dev-process-post-review
   needs:
     - job: ai-review
       artifacts: true

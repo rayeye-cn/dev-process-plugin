@@ -113,9 +113,15 @@ export async function applyGitlab(forge, policy, { dryRun = false, env = process
   }
 
   // 3. The bot token and the API key.
-  const tokenVar = await rest.get(`${P}/variables/DEV_PROCESS_TOKEN?filter[environment_scope]=${BOT_ENVIRONMENT}`).catch(notFound);
+  // Every DEV_PROCESS_TOKEN, whatever its scope: one with another scope (e.g. "*") would reach the review job.
+  const allTokens = ((await rest.paginate(`${P}/variables`).catch(() => [])) ?? []).filter((v) => v.key === "DEV_PROCESS_TOKEN");
+  const tokenVar = allTokens.find((v) => v.environment_scope === BOT_ENVIRONMENT) ?? null;
   let botToken = tokenVar?.value ?? null;
   const varFlags = { protected: true, masked: true, environment_scope: BOT_ENVIRONMENT, raw: true };
+  for (const v of allTokens.filter((x) => x.environment_scope !== BOT_ENVIRONMENT)) {
+    act("gitlab.botTokenStray", "update", { scope: v.environment_scope, removed: true });
+    if (!dryRun) await rest.delete(`${P}/variables/DEV_PROCESS_TOKEN?filter[environment_scope]=${enc(v.environment_scope)}`);
+  }
   if (!tokenVar) {
     act("gitlab.botToken", "create", { scope: BOT_ENVIRONMENT });
     if (!dryRun) {

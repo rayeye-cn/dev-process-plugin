@@ -135,7 +135,10 @@ export function approvalTime(approval, notes) {
  * The newest such note's time, or null.
  */
 export function targetChangedAt(notes) {
-  const changes = notes.filter((n) => n.system && /^changed target branch from /i.test(String(n.body ?? "")));
+  // Two notes: a person or the API changed it, or GitLab did when the target branch was deleted (a stacked MR whose
+  // parent merged): "deleted the `x` branch. This merge request now targets the `y` branch". (M6: text on non-English
+  // instances.)
+  const changes = notes.filter((n) => n.system && /^changed target branch from |this merge request now targets the /i.test(String(n.body ?? "")));
   return latestTime(...changes.map((n) => n.created_at));
 }
 

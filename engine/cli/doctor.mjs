@@ -81,14 +81,15 @@ export function localFindings(root, policy) {
 }
 
 /** Setup actions (apply-protection's dry run) that are findings: anything still to create or update, every warning. */
-const GITLAB_LEVEL = { "gitlab.branch": "error", "gitlab.settings": "error", "gitlab.botToken": "error", "gitlab.botTokenFlags": "error", "gitlab.trigger": "warn", "gitlab.schedule": "error", "gitlab.webhook": "warn", "gitlab.approvals": "warn", "gitlab.apiKey": "warn" };
-const GITLAB_ERRORS = new Set(["gitlab.humanMaintainers", "gitlab.mrPipelinesProtected", "gitlab.jobTokenPush", "gitlab.apiKeyMissing", "gitlab.wildcardBranch"]);
+const GITLAB_LEVEL = { "gitlab.botTokenStray": "error", "gitlab.branch": "error", "gitlab.settings": "error", "gitlab.botToken": "error", "gitlab.botTokenFlags": "error", "gitlab.trigger": "warn", "gitlab.schedule": "error", "gitlab.webhook": "warn", "gitlab.approvals": "warn", "gitlab.apiKey": "warn" };
+// Human Maintainers / Owners are warnings, not errors: a project always has an Owner (often whoever runs this).
+const GITLAB_ERRORS = new Set(["gitlab.jobTokenPush", "gitlab.apiKeyMissing", "gitlab.wildcardBranch"]);
 
 /**
  * GitLab: the setup's dry run (so doctor and apply-protection cannot disagree), plus what only doctor looks at:
  * wildcard protected branches (17.11 may hand MR pipelines protected variables through them) and the bot token's
- * expiry. On Free, human Maintainers, MR pipelines with protected variables and job-token pushes are errors: each one is
- * a way past the gate.
+ * expiry. Job-token pushes and wildcard protected branches are errors; human Maintainers / Owners and MR pipelines that
+ * may read protected variables are warnings that name the risk (a project always has an Owner).
  */
 export async function gitlabFindings(forge, policy, { now = new Date(), fetch: fetchImpl = globalThis.fetch } = {}) {
   const { applyGitlab } = await import("./apply-protection.mjs");

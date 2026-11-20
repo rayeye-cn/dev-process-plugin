@@ -21,12 +21,11 @@ This repository's review process follows how the Claude Code team does code revi
 | Nightly sweep | Each night one security review path is read (read-only) for existing bugs; findings with a file and line become issues for a human to verify | Schedule "dev-process: nightly sweep"; issues labeled `{{ policy.names.sweepLabel }}` |
 {{/if}}
 
-GitLab runs no pipeline on a comment or an approval. The process bot therefore works in pipelines of `{{ defaultBranch }}`, started by a **webhook** (merge request, comment and pipeline events → a pipeline trigger) and by a **schedule every 10 minutes** that catches up on anything the webhook missed. A pipeline of `{{ defaultBranch }}` uses `{{ defaultBranch }}`'s configuration and engine, so an MR cannot change how it is judged.
+GitLab runs no pipeline on a comment or an approval. The process bot therefore works in pipelines of `{{ defaultBranch }}`, started by a **webhook** (merge request and comment events → a pipeline trigger) and by a **schedule every 10 minutes** that catches up on anything the webhook missed. A passing gate on a queued MR wakes the queue at once; an MR pipeline finishing reaches the queue through the schedule. A pipeline of `{{ defaultBranch }}` uses `{{ defaultBranch }}`'s configuration and engine, so an MR cannot change how it is judged.
 
 ## Admin checklist (in this order)
 
 1. **GitLab 17.11 or later.** The process uses the merge ref, MR diff versions and approval system notes as they work there.
-1. **People are Developers.** On Free, anyone with Maintainer or Owner can merge past the gate. Give people the Developer role; the bot is the only Maintainer. `doctor --remote` names everyone above Developer.
 1. **Runners** for the default branch's pipelines with a Docker executor (the bot's jobs use `node:{{ ci.node }}`){{#if ci.tagsYaml}}, and runners with the tags `tests` uses{{/if}}. Merge request pipelines run the MR's own code: don't give them runners that hold secrets.
 1. **Run the setup** with your own token (Maintainer or Owner, `api` scope), first as a dry run:
 
@@ -39,7 +38,9 @@ GitLab runs no pipeline on a comment or an approval. The process bot therefore w
 1. **Self-managed: let the webhook reach the instance.** GitLab refuses webhooks to its own address by default. An admin allows it under Admin → Settings → Network → Outbound requests ("Allow requests to the local network from webhooks and integrations", or adds this host to the allowlist), then re-run the setup. Until then the 10-minute schedule alone moves things: after a sign-off or an approval the gate can take up to 10 minutes to update.
 1. **Optional: the model.** A CI/CD variable `CLAUDE_REVIEW_MODEL` (e.g. a model id). Reviews are capped at {{ policy.aiReview.maxComments }} findings and {{ policy.aiReview.maxTurns }} turns (`aiReview` in `{{ configPath }}`).
 1. **Every year: rotate the bot token** (Settings → Access tokens → Rotate) and update `DEV_PROCESS_TOKEN`. `doctor --remote` warns 30 days ahead; when it expires, the gate, the review and the queue all stop.
-1. **Check**: `GITLAB_TOKEN=<your token> node {{ engine }}/cli/doctor.mjs --remote --repo {{ repo }}`, then open a test MR and watch the `{{ defaultBranch }}` pipelines: the gate's note, the review threads and summary, and the queue merging it.
+1. **A test MR**: open one, sign it off, add the `{{ policy.names.queueLabel }}` label and watch the `{{ defaultBranch }}` pipelines: the gate's note, the review threads and summary, the queue merging it.
+1. **Then make people Developers.** On Free, anyone with Maintainer or Owner can merge past the gate. Once the test MR merged through the queue (the bot works), give the people who write code the Developer role and keep Owner to a few admins; the bot is then the only one merging. Do this last: if the bot does not work yet, nobody else could merge.
+1. **Check**: `GITLAB_TOKEN=<your token> node {{ engine }}/cli/doctor.mjs --remote --repo {{ repo }}` — it names everyone above Developer.
 
 ## FAQ
 

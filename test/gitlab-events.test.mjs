@@ -50,6 +50,8 @@ describe("GitLab events", () => {
     assert.deepEqual(tasks(note(BOT)), []);
     assert.deepEqual(tasks(note("alice", "Issue")), []);
     assert.deepEqual(tasks(mrEvent({ action: "approved" }, {}, BOT)), []);
+    // …except a retarget: GitLab retargets a stacked MR when the bot merged its parent and the branch went away.
+    assert.deepEqual(tasks(mrEvent({}, { target_branch: { previous: "feat/a", current: "main" } }, BOT)), ["gate", "review"]);
   });
 
   it("a finished MR pipeline wakes only the queue (never the gate: no loop through its own statuses); other pipelines and running ones do nothing", () => {

@@ -10,7 +10,7 @@ argument-hint: "[repository path, default: current directory]"
 `<repo>` is the repository (the argument, or the current directory). Talk to the user in their language.
 
 1. Make sure it is installed: `<repo>/.dev-process/config.json` exists. If not, offer `/dev-process:init`.
-2. Run `node <repo>/.dev-process/engine/cli/doctor.mjs --remote` (GitHub: needs `gh auth status`; GitLab: the user runs it with `!` and `GITLAB_TOKEN=<their token>` in front, adding `--repo <group/name>` — never ask for the token in the conversation; without access run it without `--remote` and say the remote half was skipped). Findings print in the project language; exit code 1 means at least one error.
+2. Run `node <repo>/.dev-process/engine/cli/doctor.mjs --remote` (GitHub: needs `gh auth status`; GitLab: the user runs it with `GITLAB_TOKEN` set, adding `--repo <group/name>` — in their own terminal, or with `!` only when the value comes from command substitution of `glab auth token`; never ask for the token in the conversation; without access run it without `--remote` and say the remote half was skipped). Findings print in the project language; exit code 1 means at least one error.
 3. For each finding, explain what it means and the fix:
    - consistency findings: edit `<repo>/.dev-process/answers.json` (high/security/low paths, people) and re-render with `/dev-process:upgrade` — never hand-edit CODEOWNERS or the instruction files' front matter, they mirror the configuration;
    - a missing or extra workflow: re-render;

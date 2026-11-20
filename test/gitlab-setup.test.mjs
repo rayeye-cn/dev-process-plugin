@@ -24,6 +24,8 @@ function world({ blockHooks = false, members = [], branches = [], tokens = [] } 
     ["GET", new RegExp(`^${P}/protected_branches/main$`), () => st.protected ?? { status: 404 }],
     ["DELETE", new RegExp(`^${P}/protected_branches/main$`), () => ((st.protected = null), null)],
     ["POST", new RegExp(`^${P}/protected_branches$`), (b) => (st.protected = { name: b.name, push_access_levels: [{ access_level: b.push_access_level }], merge_access_levels: [{ access_level: b.merge_access_level }], allow_force_push: b.allow_force_push })],
+    ["GET", new RegExp(`^${P}/variables\\?`), () => st.variables],
+    ["DELETE", new RegExp(`^${P}/variables/(\\w+)\\?filter\\[environment_scope\\]=(.+)$`), (b, i, m) => ((st.variables = st.variables.filter((v) => !(v.key === m[1] && v.environment_scope === decodeURIComponent(m[2])))), null)],
     ["GET", new RegExp(`^${P}/variables/(\\w+)`), (b, i, m) => st.variables.find((v) => v.key === m[1]) ?? { status: 404 }],
     ["POST", new RegExp(`^${P}/variables$`), (b) => (st.variables.push(b), b)],
     ["POST", new RegExp(`^${P}/access_tokens$`), () => ({ token: "glpat-bot-token-123456", user_id: 77 })],
@@ -94,12 +96,22 @@ describe("GitLab setup", () => {
     const hook = w.st.hooks[0];
     assert.equal(hook.url, "https://gl.example/api/v4/projects/9/ref/main/trigger/pipeline?token={token}");
     assert.deepEqual(hook.url_variables, [{ key: "token", value: "trig-1" }]);
-    assert.equal(hook.note_events && hook.merge_requests_events && hook.pipeline_events, true);
+    assert.equal(hook.note_events && hook.merge_requests_events, true);
+    assert.equal(hook.pipeline_events, false, "a trigger's own pipeline events would loop");
+    assert.equal(w.st.project.merge_method, "merge");
 
     const before = w.st.writes.length;
     const again = await run(w);
     assert.ok(again.actions.every((a) => a.action === "ok"), JSON.stringify(summary(again)));
     assert.deepEqual(w.st.writes.slice(before).map(([m, p]) => `${m} ${p}`), [`POST ${P}/labels`], "only the label upsert writes");
+  });
+
+  it("a DEV_PROCESS_TOKEN with another environment scope is removed (the review job would read it)", async () => {
+    const w = world();
+    w.st.variables.push({ key: "DEV_PROCESS_TOKEN", value: "glpat-old-0000000000", environment_scope: "*", protected: true, masked: true });
+    const r = await run(w);
+    assert.ok(summary(r).includes("update gitlab.botTokenStray"));
+    assert.deepEqual(w.st.variables.filter((v) => v.key === "DEV_PROCESS_TOKEN").map((v) => v.environment_scope), ["dev-process-bot"]);
   });
 
   it("a webhook the instance refuses is a warning (the poll still works); human Maintainers are warned", async () => {

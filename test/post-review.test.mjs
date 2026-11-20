@@ -23,6 +23,10 @@ describe("the review answer", () => {
     const ok = parseReview(JSON.stringify({ structured_output: { findings: [{ file: "./src/a.js", line: 3, title: " t ", body: "b" }, { file: "x", line: 0, title: "bad line", body: "" }], risk: "medium", reason: "r" } }));
     assert.deepEqual(ok.findings, [{ file: "src/a.js", line: 3, title: "t", body: "b" }]);
     assert.equal(ok.risk, "medium");
+    // The real CLI shape: `result` (the text) and `structured_output` (the object) both present — the object wins.
+    const both = parseReview(JSON.stringify({ type: "result", result: "Here you go: {broken", structured_output: { findings: [], risk: "low", reason: "r" } }));
+    assert.deepEqual([both.findings, both.risk], [[], "low"]);
+    assert.equal(parseReview(JSON.stringify({ result: JSON.stringify({ findings: [], risk: "high", reason: "r" }) })).risk, "high");
     assert.equal(parseReview("not json"), null);
     assert.equal(parseReview(JSON.stringify({ findings: [], risk: "extreme", reason: "" })), null);
     assert.equal(parseReview(JSON.stringify({ result: "{}" })), null);

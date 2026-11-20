@@ -17,7 +17,7 @@ The plugin's files are at `${CLAUDE_PLUGIN_ROOT}`. In the commands below, `<repo
 - Never post `/signoff` or the AI-review waiver command, never approve a pull request, never hand-post commit statuses — those are the humans' accountability, also during setup.
 - Never overwrite a file the user wrote (a render "conflict") without the user's explicit yes for that path.
 - Never run `apply-protection` without the user's explicit yes, and always show its `--dry-run` output first. On GitHub, also never before a test pull request shows every required check reporting: it blocks every PR if a check never reports. On GitLab it is the whole setup (protection, settings, the bot token, variables, trigger, webhook, schedules) and runs right after the init merge request merges.
-- Never ask the user to paste a token into the conversation. Commands that need one read it from the environment; the user runs those themselves with `!` in front.
+- Never ask for a token in the conversation, and never have one typed into a `!` command (that puts it in the transcript). Commands that need one read `GITLAB_TOKEN` from the environment: the user runs them in their own terminal with the variable set, or with `!` only when the value comes from command substitution of `glab auth token` (nothing secret is typed then).
 - Work on a branch, never on the default branch. Ask before pushing and before opening the pull request.
 
 ## 1. Preconditions
@@ -31,7 +31,7 @@ The forge comes from the remote's host:
 - **A host with "gitlab" in its name** → GitLab (self-managed or gitlab.com). Version 17.11 or later.
 - **Any other host**: ask the user whether it is a self-managed GitLab (continue as GitLab) or GitHub Enterprise Server (not supported in this version: say so and stop).
 
-GitLab: the remote facts (version, tier, members) need the user's own token (Maintainer or Owner, `api` scope) in `GITLAB_TOKEN`; the user runs the detect command below themselves, prefixed with `!` and with `GITLAB_TOKEN=<token>` in front (with the glab CLI, the output of `glab auth token`). Without it, detect without `--remote` and ask for the tier.
+GitLab: the remote facts (version, tier, members) need the user's own token (Maintainer or Owner, `api` scope) in `GITLAB_TOKEN`; the user runs the detect command below themselves (see the token rule above) and pastes its JSON output back. Without it, detect without `--remote` and ask for the tier.
 
 ## 2. Detect
 
@@ -90,11 +90,11 @@ Ask before `git push -u origin dev-process/init` and before opening the pull req
 ## 7. After it merges: enable it, in order
 
 GitLab: follow `docs/dev-process/review-setup.md` instead of the GitHub steps below —
-1. With the user's yes, the user runs (with `!`) `GITLAB_TOKEN=<token> ANTHROPIC_API_KEY=<key> node <repo>/.dev-process/engine/cli/apply-protection.mjs --repo <group/name> --dry-run`; walk through the output, then the same without `--dry-run`.
+1. With the user's yes, the user runs (see the token rule) `node <repo>/.dev-process/engine/cli/apply-protection.mjs --repo <group/name> --dry-run` with `GITLAB_TOKEN` (and `ANTHROPIC_API_KEY`, to store it) set; walk through the output, then the same without `--dry-run`.
 2. If it warns that the webhook was refused: a GitLab admin allows webhooks to the local network (the doc names the setting), then the setup runs again. Until then the 10-minute schedule keeps things moving.
-3. People with Maintainer or Owner become Developers (doctor names them); the bot stays the only Maintainer.
-4. A test merge request: the gate's note, Claude's threads and summary, the queue merging it after the label.
-5. `GITLAB_TOKEN=<token> node <repo>/.dev-process/engine/cli/doctor.mjs --remote --repo <group/name>` — no errors.
+3. A test merge request: the gate's note, Claude's threads and summary, the queue merging it after the sign-off and the label.
+4. Only after that test merged through the queue: people with Maintainer or Owner who write code become Developers (doctor names them). Earlier, nobody but a not-yet-working bot could merge.
+5. `doctor --remote` with `GITLAB_TOKEN` set — no errors.
 
 GitHub:
 

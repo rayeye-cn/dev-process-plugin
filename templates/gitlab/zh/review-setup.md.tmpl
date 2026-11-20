@@ -21,12 +21,11 @@
 | 夜间巡检 | 每晚只读地看一个安全评审路径找现存 bug；有文件和行号的发现开成 issue 等人核实 | 定时任务「dev-process: nightly sweep」；标签 `{{ policy.names.sweepLabel }}` 的 issue |
 {{/if}}
 
-GitLab 不会因评论或批准跑流水线。所以流程机器人在 `{{ defaultBranch }}` 的流水线里干活：由 **webhook**（MR、评论、流水线事件 → 流水线触发器）叫起，另有**每 10 分钟一次的定时任务**补上 webhook 漏掉的。`{{ defaultBranch }}` 的流水线用的是 `{{ defaultBranch }}` 上的配置与引擎，MR 改不了自己怎么被判。
+GitLab 不会因评论或批准跑流水线。所以流程机器人在 `{{ defaultBranch }}` 的流水线里干活：由 **webhook**（MR 与评论事件 → 流水线触发器）叫起，另有**每 10 分钟一次的定时任务**补上 webhook 漏掉的。排队的 MR 门一通过就立刻叫醒队列；MR 流水线跑完则由定时任务带给队列。`{{ defaultBranch }}` 的流水线用的是 `{{ defaultBranch }}` 上的配置与引擎，MR 改不了自己怎么被判。
 
 ## 管理员清单（按顺序）
 
 1. **GitLab 17.11 或更高。** 流程用到的 merge ref、MR diff 版本与批准的系统便签以那时的行为为准。
-1. **人都是 Developer。** 在 Free 上，Maintainer 或 Owner 能绕过门直接合并。给人 Developer 角色，机器人是唯一的 Maintainer；`doctor --remote` 会点出 Developer 以上的人。
 1. **Runner**：默认分支的流水线需要 Docker 执行器的 runner（机器人作业用 `node:{{ ci.node }}`）{{#if ci.tagsYaml}}，`tests` 还需要带对应 tag 的 runner{{/if}}。MR 流水线跑的是 MR 自己的代码，不要给它挂着机密的 runner。
 1. **跑设置**，用你自己的令牌（Maintainer 或 Owner，`api` 权限），先预演：
 
@@ -39,7 +38,9 @@ GitLab 不会因评论或批准跑流水线。所以流程机器人在 `{{ defau
 1. **自管实例：让 webhook 能访问本机。** GitLab 默认拒绝 webhook 访问自己的地址。请管理员在 管理 → 设置 → 网络 → 出站请求 里允许「webhook 与集成访问本地网络」（或把本机加入白名单），再跑一遍设置。在那之前只靠每 10 分钟的定时任务：签署或批准后，门最多要 10 分钟才更新。
 1. **可选：模型。** CI/CD 变量 `CLAUDE_REVIEW_MODEL`（如某个模型 id）。每次评审最多 {{ policy.aiReview.maxComments }} 条意见、{{ policy.aiReview.maxTurns }} 轮（`{{ configPath }}` 的 `aiReview`）。
 1. **每年轮换机器人令牌**（设置 → 访问令牌 → 轮换），并更新 `DEV_PROCESS_TOKEN`。`doctor --remote` 提前 30 天提醒；过期后门、评审与队列全部停摆。
-1. **检查**：`GITLAB_TOKEN=<你的令牌> node {{ engine }}/cli/doctor.mjs --remote --repo {{ repo }}`，再开一个测试 MR，看 `{{ defaultBranch }}` 的流水线：门的便签、评审的讨论串与总结、队列合入。
+1. **测试 MR**：开一个，签署，打 `{{ policy.names.queueLabel }}` 标签，看 `{{ defaultBranch }}` 的流水线：门的便签、评审的讨论串与总结、队列合入。
+1. **然后把人降为 Developer。** 在 Free 上，Maintainer 或 Owner 能绕过门直接合并。测试 MR 经队列合入（确认机器人工作）后，把写代码的人改成 Developer，Owner 只留给少数管理员；之后只有机器人在合并。这一步放最后：机器人还没工作时，别人就都合不了了。
+1. **检查**：`GITLAB_TOKEN=<你的令牌> node {{ engine }}/cli/doctor.mjs --remote --repo {{ repo }}`，它会点出 Developer 以上的人。
 
 ## 常见问题
 

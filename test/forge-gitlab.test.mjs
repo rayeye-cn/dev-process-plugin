@@ -95,6 +95,8 @@ describe("GitLab helpers", () => {
     ];
     assert.equal(targetChangedAt(notes), "2026-11-20T11:00:00Z");
     assert.equal(targetChangedAt([]), null);
+    // GitLab retargets by itself when the target branch is deleted (the stacked MR's parent merged).
+    assert.equal(targetChangedAt([{ system: true, body: "deleted the `feat/a` branch. This merge request now targets the `main` branch", created_at: "2026-11-20T14:00:00Z" }]), "2026-11-20T14:00:00Z");
   });
 
   it("threads: resolvable discussions only; outdated exactly when GitLab left the position on an older diff version", () => {

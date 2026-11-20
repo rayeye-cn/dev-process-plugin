@@ -10,7 +10,7 @@ import { policy } from "./helpers.mjs";
 const BOT = "project_42_bot_0123abcd";
 const HEAD = "b".repeat(40);
 const ENV = { CI_PIPELINE_SOURCE: "trigger", CI_DEFAULT_BRANCH: "main", CI_COMMIT_BRANCH: "main", TRIGGER_PAYLOAD: "/tmp/payload.json" };
-const pol = { ...policy, forge: "gitlab", reviewer: "claude", aiReview: { ...policy.aiReview, accounts: [] }, names: { ...policy.names, gateWorkflow: "risk-gate", queueWorkflow: "merge-queue", aiReviewWorkflow: "ai-review", ciWorkflow: "ci" } };
+const pol = { ...policy, forge: "gitlab", reviewer: "claude", trustedAuthors: ["alice"], aiReview: { ...policy.aiReview, accounts: [] }, names: { ...policy.names, gateWorkflow: "risk-gate", queueWorkflow: "merge-queue", aiReviewWorkflow: "ai-review", ciWorkflow: "ci" } };
 
 describe("which pipelines the bot acts in", () => {
   it("trigger / schedule / api / web on the default branch only; never a pipeline a job token started", () => {
@@ -83,6 +83,21 @@ describe("runBot", () => {
     const fork = fakeForge({ changes: { 7: change({ fromFork: true }) } });
     await run(fork, ENV, () => push);
     assert.equal(fork.pipelines().length, 1);
+  });
+
+  it("a sign-off that makes the gate pass on a queued MR wakes the queue right away", async () => {
+    const signed = change({
+      labels: [{ name: "merge-queue" }],
+      comments: [
+        { login: BOT, body: `x\n${claudeMarker(HEAD)}`, createdAt: "2026-11-20T11:00:00Z" },
+        { login: "alice", body: `/signoff ${HEAD.slice(0, 12)}`, createdAt: "2026-11-20T11:30:00Z" },
+      ],
+    });
+    const f = fakeForge({ changes: { 7: signed } });
+    const note = JSON.stringify({ object_kind: "note", user: { username: "alice" }, object_attributes: { noteable_type: "MergeRequest" }, merge_request: { iid: 7, state: "opened", last_commit: { id: HEAD } } });
+    const out = await run(f, ENV, () => note);
+    assert.equal(out.done.queue, true);
+    assert.deepEqual(f.pipelines(), ["DEV_PROCESS_TASK=merge-queue"]);
   });
 
   it("refuses a pipeline a job token started, and a token that is not a bot's", async () => {

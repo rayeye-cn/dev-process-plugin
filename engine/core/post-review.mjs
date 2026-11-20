@@ -46,9 +46,16 @@ const BODY_MAX = 4000;
 export function parseReview(raw) {
   let o;
   try {
-    o = JSON.parse(extractText(raw).trim());
+    // `claude --output-format json --json-schema` answers with both `result` (the text) and `structured_output` (the
+    // object, validated against the schema): take the object when it is there.
+    const outer = JSON.parse(String(raw ?? "").trim());
+    o = outer && typeof outer.structured_output === "object" && outer.structured_output !== null ? outer.structured_output : JSON.parse(extractText(raw).trim());
   } catch {
-    return null;
+    try {
+      o = JSON.parse(extractText(raw).trim());
+    } catch {
+      return null;
+    }
   }
   if (!o || typeof o !== "object" || !Array.isArray(o.findings) || !["low", "medium", "high"].includes(o.risk)) return null;
   const findings = o.findings

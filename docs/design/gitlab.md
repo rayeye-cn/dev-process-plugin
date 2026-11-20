@@ -33,14 +33,16 @@ branch's configuration and engine; a merge request cannot change how it is judge
 
 GitLab CI runs nothing on comments or approvals. Two ways in, both into a bot pipeline:
 
-- **Webhook → pipeline trigger** (merge request, comment and pipeline events; `TRIGGER_PAYLOAD` carries the body). Fast,
+- **Webhook → pipeline trigger** (merge request and comment events; `TRIGGER_PAYLOAD` carries the body). No pipeline
+  events: the trigger's own pipeline would send them and start another (a loop). A passing gate on a queued MR wakes the
+  queue directly; an MR pipeline finishing reaches the queue through the poll. Fast,
   but self-managed GitLab blocks webhooks to its own address by default: an admin must allow requests to the local
   network (or allowlist the host) **[M6: does the allowlist cover the instance itself?]**.
 - **Scheduled poll** (bot-owned schedule; self-managed runs schedules every 10 minutes by default): re-judges open MRs,
   reviews heads that have neither a review nor a notice, runs the queue. Always on, also as the fallback for lost events.
 
-`core/gitlab-events.mjs` maps an event to tasks. The bot's own events are ignored. Pipeline events wake only the
-queue: they carry the pipeline's user, not the bot, so routing them to the gate would loop through the gate's statuses.
+`core/gitlab-events.mjs` maps an event to tasks. The bot's own events are ignored (each still costs one no-op
+pipeline), except a retarget: when the bot merges a stacked MR's parent, GitLab retargets the child in the bot's name.
 
 ## Statuses are information, not enforcement
 
@@ -82,3 +84,8 @@ Any Developer can post a commit status, and a status named like a job retires th
 - `TRIGGER_PAYLOAD` availability with 17.11's pipeline-variable restrictions (fixed in 18.5).
 - Approval webhook actions on EE without a license.
 - Quick actions are not run inside fenced code blocks.
+- The commit statuses list without `ref` also returns statuses attached to other refs (the gate status, the classifier
+  status and the write-skipping all read through it).
+- Creating a branch at the merge-ref commit; `environment: action: access`; job timeouts above the project timeout.
+- System note texts ("changed target branch from", "approved this merge request", "…now targets the…") on an instance
+  whose default language is not English.

@@ -106,8 +106,10 @@ export async function runBot({ forge, policy, reviewer, env = process.env, log =
   }
 
   if (plan.tasks.includes("gate") && plan.mr) {
-    await judgeChange({ forge, policy, reviewer, number: plan.mr, baseHint: plan.baseChangedAt, env: {} });
+    const { result, data } = await judgeChange({ forge, policy, reviewer, number: plan.mr, baseHint: plan.baseChangedAt, env: {} });
     done.judged.push(plan.mr);
+    // A passing gate on a queued MR wakes the queue now (as on GitHub), not at the next poll.
+    if (result.ok && data.labels.some((l) => l.name === policy.names.queueLabel) && !plan.tasks.includes("queue")) plan.tasks.push("queue");
   }
   if (plan.tasks.includes("review") && plan.mr) {
     await startReview(ctx, plan.mr);

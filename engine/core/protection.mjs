@@ -103,6 +103,10 @@ export function gitlabPlan(policy, { defaultBranch } = {}) {
       only_allow_merge_if_all_discussions_are_resolved: true,
       // Pipelines with variables (the queue's) need Maintainer; a Developer cannot start one with variables.
       ci_pipeline_variables_minimum_override_role: "maintainer",
+      // The queue merges with a merge commit (or squashes, per policy.queue.mergeMethod); fast-forward merges would need
+      // a rebase the queue does not do.
+      merge_method: "merge",
+      squash_option: policy.queue?.mergeMethod === "squash" ? "default_on" : "default_off",
     },
     ...(premium
       ? { approvals: { reset_approvals_on_push: true, merge_requests_author_approval: false, merge_requests_disable_committers_approval: true, disable_overriding_approvers_per_merge_request: true } }
@@ -112,7 +116,9 @@ export function gitlabPlan(policy, { defaultBranch } = {}) {
       { task: "sweep", cron: "17 3 * * *", description: `${GITLAB_MARK}: nightly sweep` },
       { task: "metrics", cron: "23 1 * * 1", description: `${GITLAB_MARK}: weekly metrics` },
     ].filter((x) => wanted.has(x.task)),
-    hookEvents: { merge_requests_events: true, note_events: true, pipeline_events: true, push_events: false, issues_events: false, tag_push_events: false, enable_ssl_verification: true },
+    // No pipeline events: the trigger starts a pipeline whose own status changes are pipeline events (a loop). MR pipelines
+    // finishing reach the queue through the poll; a passing gate wakes it directly.
+    hookEvents: { merge_requests_events: true, note_events: true, pipeline_events: false, push_events: false, issues_events: false, tag_push_events: false, enable_ssl_verification: true },
     labels: [policy.names.queueLabel],
   };
 }

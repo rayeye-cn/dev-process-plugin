@@ -33,7 +33,10 @@ export function eventTasks(payload, { bot, queueLabel = "merge-queue" } = {}) {
   const none = (why) => ({ mr: null, head: null, tasks: [], baseChangedAt: null, why });
   if (!payload || typeof payload !== "object") return none("no payload");
   const actor = payload.user?.username ?? null;
-  if (bot && actor === bot) return none("the bot's own event");
+  // The bot's own events are ignored, except a retarget: when the queue (the bot) merges a stacked MR's parent and GitLab
+  // retargets the child, the event carries the bot, and the child must be re-judged and reviewed.
+  const retargetByBot = payload.object_kind === "merge_request" && Boolean(payload.changes?.target_branch);
+  if (bot && actor === bot && !retargetByBot) return none("the bot's own event");
 
   switch (payload.object_kind) {
     case "merge_request": {
