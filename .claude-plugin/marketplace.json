@@ -1,0 +1,17 @@
+{
+  "name": "dev-process-plugin",
+  "description": "rayeye-cn 的开发流程插件 / Development process plugin by rayeye-cn",
+  "owner": {
+    "name": "rayeye-cn",
+    "url": "https://github.com/rayeye-cn"
+  },
+  "plugins": [
+    {
+      "name": "dev-process",
+      "source": "./",
+      "description": "Install a Claude-Code-team-style development and review process (GitHub or self-managed GitLab, Copilot or Claude review, zh/en)",
+      "category": "development",
+      "keywords": ["code-review", "risk-gate", "merge-queue", "github", "gitlab", "开发流程"]
+    }
+  ]
+}

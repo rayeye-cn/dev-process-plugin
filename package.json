@@ -1,0 +1,13 @@
+{
+  "name": "dev-process-plugin",
+  "private": true,
+  "type": "module",
+  "description": "Source of the dev-process Claude Code plugin. Zero runtime dependencies; tests use node:test.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec \"test/**/*.test.mjs\"",
+    "validate": "claude plugin validate --strict ."
+  }
+}
