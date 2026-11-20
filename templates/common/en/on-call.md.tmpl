@@ -6,7 +6,7 @@ Following the Claude Code team's practice: what review doesn't catch is covered 
 
 The on-call person changes every Monday, in table order from top to bottom, then starts over. At handover, say so in the team channel and hand over anything left open from the previous week.
 
-| GitHub account | Notes (backup, time zone, …) |
+| {{ forgeName }} account | Notes (backup, time zone, …) |
 | --- | --- |
 {{#each people.onCall}}
 | `{{ this }}` |  |
@@ -17,7 +17,7 @@ The on-call person changes every Monday, in table order from top to bottom, then
 - **Watch feedback for 48 hours after a release**: user reports and issues passed on by support, error monitoring, whether key usage metrics dropped noticeably, whether the new version starts or deploys normally.
 - **When a release is bad**: stop the damage first, then fix. {{#if stagedRollout}}Pause the staged rollout (set it to 0%) first{{else}}Pull or roll back the release first (revert the {{ pr }} that caused it, or ship the last good version again){{/if}}, then find the change's author and fix it together. The fix goes through normal review at a risk tier of at least medium.
 {{#if queue.self}}
-- **The merge queue is stuck**: read the runs of `.github/workflows/{{ policy.names.queueWorkflow }}` and the comments on ejected {{ pr }}s.{{#if ci.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{else}}{{#if ci.releaseGate.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{/if}}{{/if}}
+- **The merge queue is stuck**: read the runs of {{#eq forge "gitlab"}}the `merge-queue` job in the default branch's pipelines (DEV_PROCESS_TASK=merge-queue){{else}}`.github/workflows/{{ policy.names.queueWorkflow }}`{{/eq}} and the comments on ejected {{ pr }}s.{{#if ci.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{else}}{{#if ci.releaseGate.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{/if}}{{/if}}
 {{else}}
 - **The merge queue is stuck**: look at the repository's merge queue page and the required checks of the {{ pr }} at the front.{{#if ci.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{else}}{{#if ci.releaseGate.selfHosted}} When a self-hosted runner is offline, the checks that run on it stay queued: wake the machine or restart the runner.{{/if}}{{/if}}
 {{/if}}

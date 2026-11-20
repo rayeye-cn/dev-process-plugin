@@ -18,7 +18,7 @@ For each layer, answer "why didn't this layer catch it", and land at least one i
 | --- | --- | --- |
 | Before the {{ pr }} (local checks, `/code-review`, `/security-review`) |  |  |
 | {{ ai }} review (`{{ instructionsPath }}`, security checklist `{{ securityPath }}`) |  |  |
-| Required checks (`.github/workflows/{{ policy.names.ciWorkflow }}`: {{#each ci.requiredChecks}}`{{ this }}`{{#unless @last}}, {{/unless}}{{/each}}{{#if ci.releaseGate}}, `{{ ci.releaseGate.name }}`{{/if}}) |  |  |
+| Required checks (`{{ ciFile }}`: {{#each ci.requiredChecks}}`{{ this }}`{{#unless @last}}, {{/unless}}{{/each}}{{#if ci.releaseGate}}, `{{ ci.releaseGate.name }}`{{/if}}) |  |  |
 | People by risk (was the `{{ policy.names.gateContext }}` tier too low, did the right people look) |  |  |
 | Merge queue |  |  |
 {{#if stagedRollout}}

@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | 提 {{ pr }} 前自查（本地检查、`/code-review`、`/security-review`） |  |  |
 | {{ ai }} 评审（`{{ instructionsPath }}`、安全清单 `{{ securityPath }}`） |  |  |
-| 自动检查（`.github/workflows/{{ policy.names.ciWorkflow }}`：{{#each ci.requiredChecks}}`{{ this }}`{{#unless @last}}、{{/unless}}{{/each}}{{#if ci.releaseGate}}、`{{ ci.releaseGate.name }}`{{/if}}） |  |  |
+| 自动检查（`{{ ciFile }}`：{{#each ci.requiredChecks}}`{{ this }}`{{#unless @last}}、{{/unless}}{{/each}}{{#if ci.releaseGate}}、`{{ ci.releaseGate.name }}`{{/if}}） |  |  |
 | 按风险要人（`{{ policy.names.gateContext }}` 分档是否偏低、该看的人看了没有） |  |  |
 | 合并队列 |  |  |
 {{#if stagedRollout}}

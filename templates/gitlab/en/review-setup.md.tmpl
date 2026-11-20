@@ -1,0 +1,56 @@
+# Review process: how it fits together and one-time setup (GitLab)
+
+This repository's review process follows how the Claude Code team does code review: most changes merge with at most one human in the loop, backed by risk-based reviewers, a merge queue and catching problems fast after the fact. The day-to-day rules are in the "Review process" section of `CLAUDE.md`; this page covers the layers, the one-time setup on GitLab ({{ gitlab.url }}, tier: {{ gitlab.tier }}) and what is and isn't defended.
+
+## Layers
+
+| Layer | What it is here | Files |
+| --- | --- | --- |
+| Before the MR | Run the checks locally and paste the output, `/code-review high`{{#if policy.securityPaths}}, `/security-review` for security review paths{{/if}} | `CLAUDE.md` |
+| AI review on every push | The `ai-review` job: Claude Code reads the MR head read-only and answers with its findings; the process bot opens one thread per finding and posts a summary | `{{ instructionsPath }}`, `{{ securityPath }}`, `.gitlab/dev-process.gitlab-ci.yml` |
+| Every AI comment answered | `{{ policy.names.gateContext }}` requires an answer to every thread {{ ai }} opened; "All threads must be resolved" blocks the merge until they are resolved | Same as above |
+| Required checks | {{#each ci.requiredChecks}}`{{ this }}`{{#unless @last}}, {{/unless}}{{/each}}{{#if ci.releaseGate}}; release MRs also run `{{ ci.releaseGate.name }}`{{/if}} | `.gitlab-ci.yml` |
+| People by risk | `{{ policy.names.gateContext }}`: path-based tier{{#if classifier}} + AI second opinion (can only raise it){{/if}} → how many people | `{{ configPath }}` |
+| Merge queue | Add the `{{ policy.names.queueLabel }}` label: the bot re-runs CI on "latest `{{ defaultBranch }}` + this MR" (branch `{{ policy.names.queueContext }}/pr-N`) and merges when green and the gate still passes | `.gitlab/dev-process.gitlab-ci.yml` |
+| Who can merge | `{{ defaultBranch }}` takes no pushes and only Maintainers merge; people are Developers, so only the bot merges, and only through the queue{{#if gitlab.premium}}; approval settings and Code Owner approval on top{{/if}} | `{{ engine }}/core/protection.mjs`, `.gitlab/CODEOWNERS` |
+| Catching problems fast | Weekly on-call rotation, 48 hours of watching feedback after a release, incident reviews from a template | `docs/dev-process/on-call.md`, `docs/incident-review-template.md` |
+{{#if loops.metrics}}
+| Measuring human time and noise | Weekly metrics: approvals and comments from others, waiting time, what happened to {{ ai }}'s comments, reverts and fixes | Schedule "dev-process: weekly metrics"; results in the issue labeled `{{ policy.names.metricsLabel }}` |
+{{/if}}
+{{#if loops.sweep}}
+| Nightly sweep | Each night one security review path is read (read-only) for existing bugs; findings with a file and line become issues for a human to verify | Schedule "dev-process: nightly sweep"; issues labeled `{{ policy.names.sweepLabel }}` |
+{{/if}}
+
+GitLab runs no pipeline on a comment or an approval. The process bot therefore works in pipelines of `{{ defaultBranch }}`, started by a **webhook** (merge request, comment and pipeline events → a pipeline trigger) and by a **schedule every 10 minutes** that catches up on anything the webhook missed. A pipeline of `{{ defaultBranch }}` uses `{{ defaultBranch }}`'s configuration and engine, so an MR cannot change how it is judged.
+
+## Admin checklist (in this order)
+
+1. **GitLab 17.11 or later.** The process uses the merge ref, MR diff versions and approval system notes as they work there.
+1. **People are Developers.** On Free, anyone with Maintainer or Owner can merge past the gate. Give people the Developer role; the bot is the only Maintainer. `doctor --remote` names everyone above Developer.
+1. **Runners** for the default branch's pipelines with a Docker executor (the bot's jobs use `node:{{ ci.node }}`){{#if ci.tagsYaml}}, and runners with the tags `tests` uses{{/if}}. Merge request pipelines run the MR's own code: don't give them runners that hold secrets.
+1. **Run the setup** with your own token (Maintainer or Owner, `api` scope), first as a dry run:
+
+   ```sh
+   GITLAB_TOKEN=<your token> ANTHROPIC_API_KEY=<key> node {{ engine }}/cli/apply-protection.mjs --repo {{ repo }} --dry-run
+   GITLAB_TOKEN=<your token> ANTHROPIC_API_KEY=<key> node {{ engine }}/cli/apply-protection.mjs --repo {{ repo }}
+   ```
+
+   It protects `{{ defaultBranch }}` (no pushes, merges by Maintainers, no force push), turns on "Pipelines must succeed" and "All threads must be resolved", lets only Maintainers start pipelines with variables{{#if gitlab.premium}}, sets the approval rules (reset on push, no author or committer approval) and Code Owner approval{{/if}}, creates the bot (a project access token, `api`, Maintainer, valid for a year) and stores it as `DEV_PROCESS_TOKEN` (protected, masked, environment `dev-process-bot`), stores `ANTHROPIC_API_KEY` (protected, masked), and creates — as the bot — the pipeline trigger, the webhook and the schedules. Run it again any time: it only changes what differs.
+1. **Self-managed: let the webhook reach the instance.** GitLab refuses webhooks to its own address by default. An admin allows it under Admin → Settings → Network → Outbound requests ("Allow requests to the local network from webhooks and integrations", or adds this host to the allowlist), then re-run the setup. Until then the 10-minute schedule alone moves things: after a sign-off or an approval the gate can take up to 10 minutes to update.
+1. **Optional: the model.** A CI/CD variable `CLAUDE_REVIEW_MODEL` (e.g. a model id). Reviews are capped at {{ policy.aiReview.maxComments }} findings and {{ policy.aiReview.maxTurns }} turns (`aiReview` in `{{ configPath }}`).
+1. **Every year: rotate the bot token** (Settings → Access tokens → Rotate) and update `DEV_PROCESS_TOKEN`. `doctor --remote` warns 30 days ahead; when it expires, the gate, the review and the queue all stop.
+1. **Check**: `GITLAB_TOKEN=<your token> node {{ engine }}/cli/doctor.mjs --remote --repo {{ repo }}`, then open a test MR and watch the `{{ defaultBranch }}` pipelines: the gate's note, the review threads and summary, and the queue merging it.
+
+## FAQ
+
+- **The gate didn't update after my comment or approval.** If the webhook is blocked (see above), it updates within 10 minutes. Otherwise look at the latest `{{ defaultBranch }}` pipeline started by the trigger.
+- **Claude didn't review.** A push starts the review within a minute; when a review is missing the gate's note quotes the reason (no key, the run failed, no answer). After fixing it, push again (an empty commit is fine); the 10-minute schedule also starts reviews for heads that have neither a review nor a notice after 25 minutes.
+- **Claude is down or out of credit and it's urgent**: someone with write access comments `{{ policy.commands.waiver }} <head sha>`; the gate then needs {{ policy.aiReviewWaiverExtraApprovals }} more approval from someone else.
+- **MRs from forks** are reviewed too (the review only reads their code), but the queue never takes them: their CI would run with this project's runners. Merge them through a branch of this project.
+
+## Trust boundaries
+
+- **An MR cannot change its own gate**: the bot's jobs run only in pipelines of `{{ defaultBranch }}`, with its configuration and engine; merge request pipelines never see `DEV_PROCESS_TOKEN` or `ANTHROPIC_API_KEY` (protected variables). An MR that changes `.gitlab-ci.yml`, `.gitlab/**`, `CLAUDE.md` at any depth, `.claude/**`, `.mcp.json` or `.dev-process/**` is high tier.
+- **Statuses are information**: any Developer can post a commit status, so nothing here trusts one that the bot did not write, and the queue reads CI results from the jobs themselves. What stops a merge is that only the bot can merge.
+- **Claude's text cannot act**: the review job has no token, and before the bot posts anything it breaks mentions and references, removes quick actions (`/merge`, `/approve`, … at the start of a line) and secrets.
+- **Not defended**: people with Maintainer or Owner on this project, and instance admins, can merge past the gate or change the protection; that is why people are Developers. A Maintainer who runs a pipeline with variables on `{{ defaultBranch }}` acts as the bot.

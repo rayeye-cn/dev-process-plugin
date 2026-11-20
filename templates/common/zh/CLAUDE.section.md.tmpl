@@ -12,13 +12,13 @@
    - 每一档都要 {{ ai }} 真正评审过当前提交（额度不足、出错之类的通知不算）。{{ ai }} 故障或额度用完时，有写权限的人在 {{ pr }} 评论里发 `{{ policy.commands.waiver }} <head sha>`：门不再等 {{ ai }}，改为多要 {{ policy.aiReviewWaiverExtraApprovals }} 位他人批准。豁免和签署一样只管这一个提交，有新提交要重发。
 6. **作者签署只能由人本人发**：在 {{ pr }} 评论里发 `{{ policy.commands.signoff }} <head sha>`，表示读过证据、为这次改动负责。有新提交要重签。**Claude 不得代发 `{{ policy.commands.signoff }}` 或 `{{ policy.commands.waiver }}`，也不得代人批准 {{ pr }}。**
 {{#if queue.self}}
-7. **合并只走队列**：随时可以给 {{ pr }} 打 `{{ policy.names.queueLabel }}` 标签入队。队列会等 `{{ policy.names.gateContext }}` 满足（包括 {{ ai }} 评审到了），再在「最新的 `{{ defaultBranch }}` + 这个 {{ pr }}」上重跑 CI，绿了才合入。不要手动合并：必需检查 `{{ policy.names.queueContext }}` 只有队列会写成功，而且所有必需检查都绑定了 GitHub Actions 来源，人手发的 status 不算。
+7. **合并只走队列**：随时可以给 {{ pr }} 打 `{{ policy.names.queueLabel }}` 标签入队。队列会等 `{{ policy.names.gateContext }}` 满足（包括 {{ ai }} 评审到了），再在「最新的 `{{ defaultBranch }}` + 这个 {{ pr }}」上重跑 CI，绿了才合入。{{#eq forge "gitlab"}}不要设法手动合并：`{{ defaultBranch }}` 只有流程机器人有合并权限（人都是 Developer），它只在队列复判通过后合入；提交状态任何 Developer 都能发，所以从来不算数。{{else}}不要手动合并：必需检查 `{{ policy.names.queueContext }}` 只有队列会写成功，而且所有必需检查都绑定了 GitHub Actions 来源，人手发的 status 不算。{{/eq}}
 {{else}}
 7. **合并只走队列**：门满足后，把 {{ pr }} 加入合并队列（{{ pr }} 页面上的 **Merge when ready**）。队列会在「最新的 `{{ defaultBranch }}` + 这个 {{ pr }}」上重跑必需检查，绿了才合入。不要手动合并：所有必需检查都绑定了 GitHub Actions 来源，人手发的 status 不算。
 {{/if}}
 8. **评审最多 {{ policy.reviewRoundCap }} 轮**：{{ ai }} 到第 {{ policy.reviewRoundCap }} 轮还在提新问题，就停下来重新考虑方案（方向对不对、该不该拆），而不是继续一轮轮地修。
 9. **你合进去的，出了问题你修**：改动出了问题由作者跟进；发版后由当周值班盯反馈，见 `docs/dev-process/on-call.md`。
-10. **紧急绕过**：只有仓库管理员能在 {{ pr }} 上绕过规则合并。用的时候在 {{ pr }} 里写明原因，事后补齐评审。
+10. **紧急绕过**：{{#eq forge "gitlab"}}只有项目 Owner 或实例管理员能绕过门合并（人平时都是 Developer）{{else}}只有仓库管理员能在 {{ pr }} 上绕过规则合并{{/eq}}。用的时候在 {{ pr }} 里写明原因，事后补齐评审。
 11. **不许绕门**：Claude 不得为了让检查变绿而手发 commit status，也不得为此改 CI 工作流、`{{ configPath }}` 或 `{{ engine }}/`。门判红，就照它置顶评论里「还差」的几条去补；觉得门判错了，在 {{ pr }} 里说明，请人来改规则。
 
 ## 改评审规则本身

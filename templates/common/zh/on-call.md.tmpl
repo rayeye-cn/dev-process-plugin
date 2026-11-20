@@ -6,7 +6,7 @@
 
 每周一换人，按下表从上到下轮，轮完从头再来。换班时在团队频道里说一声，把上周没收尾的事交接清楚。
 
-| GitHub 账号 | 备注（替班、时区等） |
+| {{ forgeName }} 账号 | 备注（替班、时区等） |
 | --- | --- |
 {{#each people.onCall}}
 | `{{ this }}` |  |
@@ -17,7 +17,7 @@
 - **发版后 48 小时盯反馈**：用户反馈和客服转来的问题、错误监控、关键使用指标有没有明显下滑、新版本能不能正常启动或部署。
 - **发现坏版本**：先止血，再修。{{#if stagedRollout}}先暂停分批推送（放量比例调到 0），{{else}}先撤下或回滚这个版本（revert 引入问题的 {{ pr }}，或重新发布上一个好版本），{{/if}}再找改动的作者一起修。修复走正常评审，风险档不低于 medium。
 {{#if queue.self}}
-- **合并队列卡住**：看 `.github/workflows/{{ policy.names.queueWorkflow }}` 的运行记录和被出队的 {{ pr }} 上的评论。{{#if ci.selfHosted}}自托管 runner 掉线时，跑在上面的检查会一直排队：把那台机器叫醒，或重启 runner。{{else}}{{#if ci.releaseGate.selfHosted}}自托管 runner 掉线时，跑在上面的检查会一直排队：把那台机器叫醒，或重启 runner。{{/if}}{{/if}}
+- **合并队列卡住**：看{{#eq forge "gitlab"}}默认分支流水线里 `merge-queue` 作业（DEV_PROCESS_TASK=merge-queue）{{else}} `.github/workflows/{{ policy.names.queueWorkflow }}` {{/eq}}的运行记录和被出队的 {{ pr }} 上的评论。{{#if ci.selfHosted}}自托管 runner 掉线时，跑在上面的检查会一直排队：把那台机器叫醒，或重启 runner。{{else}}{{#if ci.releaseGate.selfHosted}}自托管 runner 掉线时，跑在上面的检查会一直排队：把那台机器叫醒，或重启 runner。{{/if}}{{/if}}
 {{else}}
 - **合并队列卡住**：看仓库的合并队列页面和排在最前面的那个 {{ pr }} 的必需检查。{{#if ci.selfHosted}}自托管 runner 掉线时，跑在上面的检查会一直排队：把那台机器叫醒，或重启 runner。{{else}}{{#if ci.releaseGate.selfHosted}}自托管 runner 掉线时，跑在上面的检查会一直排队：把那台机器叫醒，或重启 runner。{{/if}}{{/if}}
 {{/if}}

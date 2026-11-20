@@ -77,9 +77,12 @@ describe("answers: GitLab", () => {
     bad({ gitlab: { url: "gitlab.example.com" } }, /gitlab\.url/);
     bad({ repo: "app" }, /group\/…\/name/);
   });
-  it("is not renderable yet (the CI template comes later in M5)", async () => {
-    const { assertRenderable } = await import("../tools/render.mjs");
-    assert.throws(() => assertRenderable(validateAnswers(gl())), /forge.*gitlab.*not available yet/);
+  it("renders the GitLab names and schedules into the policy", () => {
+    const c = buildContext(validateAnswers(gl({ loops: { sweep: false, eval: true, metrics: true } })));
+    assert.deepEqual([c.policy.names.ciWorkflow, c.policy.names.gateWorkflow, c.policy.names.queueWorkflow, c.policy.names.aiReviewWorkflow], ["ci", "risk-gate", "merge-queue", "ai-review"]);
+    assert.deepEqual(c.policy.gitlab, { url: "https://gitlab.example.com", tier: "free", schedules: ["poll", "metrics"] });
+    assert.equal(c.loops.eval, false, "the review eval is not ported to GitLab yet");
+    assert.equal(c.ciFile, ".gitlab-ci.yml");
   });
 });
 

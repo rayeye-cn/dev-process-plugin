@@ -5,7 +5,7 @@
  *
  * Template context (documented contract — templates must not read anything else):
  *   lang, zh, en                    language
- *   forge, pr ("PR" | "MR")
+ *   forge, forgeName ("GitHub" | "GitLab"), pr ("PR" | "MR"), ciFile (where the CI jobs are defined)
  *   reviewer, ai, isCopilot, isClaude
  *   project.name, project.description
  *   repo, defaultBranch
@@ -168,7 +168,10 @@ export function buildContext(a) {
     zh: a.language === "zh",
     en: a.language === "en",
     forge: a.forge,
+    forgeName: a.forge === "gitlab" ? "GitLab" : "GitHub",
     pr: a.forge === "gitlab" ? "MR" : "PR",
+    /** Where the CI jobs are defined. */
+    ciFile: a.forge === "gitlab" ? ".gitlab-ci.yml" : `.github/workflows/${policyFrom(a).names.ciWorkflow}`,
     reviewer: a.reviewer,
     ai: reviewer.displayName,
     isCopilot: a.reviewer === "copilot",

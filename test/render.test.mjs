@@ -162,6 +162,26 @@ describe("options that are not available yet", () => {
     assert.ok(prompt.includes(readFileSync(join(d, ".dev-process/ai-review/instructions.md"), "utf8").trim().split("\n")[0]));
   });
 
+  it("GitLab: .gitlab files only, no .github; the rendered setup passes the local doctor; no template text left", async () => {
+    const { localFindings } = await import("../engine/cli/doctor.mjs");
+    const d = tempRepo();
+    const a = validateAnswers({ ...answers, forge: "gitlab", gitlab: { url: "https://gl.example.com", tier: "free" }, reviewer: "claude", repo: "grp/sub/app", people: { trustedAuthors: ["john.doe", "jane"] }, paths: { high: ["src/auth/**"], security: ["src/auth/**"], lowOnly: ["docs/**"] }, ci: { ...answers.ci, setup: [{ run: "npm ci" }], checks: [{ run: "npm run lint" }], tests: [{ run: "npm test" }], releaseGate: null } });
+    const p = plan(d, a);
+    const paths = p.entries.map((e) => e.path).filter((f) => !f.startsWith(".dev-process/engine/"));
+    for (const f of [".gitlab-ci.yml", ".gitlab/dev-process.gitlab-ci.yml", ".gitlab/CODEOWNERS", ".gitlab/merge_request_templates/Default.md", "docs/dev-process/review-setup.md"]) assert.ok(paths.includes(f), f);
+    assert.deepEqual(paths.filter((f) => f.startsWith(".github/")), []);
+    apply(d, p);
+    assert.deepEqual(localFindings(d, p.ctx.policy).filter((f) => f.level === "error"), []);
+    for (const f of [".gitlab-ci.yml", ".gitlab/dev-process.gitlab-ci.yml", "docs/dev-process/review-setup.md", "CLAUDE.md"]) {
+      const text = readFileSync(join(d, f), "utf8");
+      assert.doesNotMatch(text, /\{\{|\}\}/, f);
+      assert.doesNotMatch(text, /GitHub Actions|\.github\//, f);
+    }
+    const bot = readFileSync(join(d, ".gitlab/dev-process.gitlab-ci.yml"), "utf8");
+    assert.match(bot, /claude --bare --restricted --strict-mcp-config/);
+    assert.match(readFileSync(join(d, ".gitlab/CODEOWNERS"), "utf8"), /^\/\.gitlab-ci\.yml @john\.doe @jane$/m);
+  });
+
   it("Copilot without security paths: no security file, and the instructions still load", async () => {
     const { reviewInstructions } = await import("../engine/core/findings.mjs");
     const d = tempRepo();
