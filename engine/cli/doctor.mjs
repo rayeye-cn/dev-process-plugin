@@ -38,7 +38,8 @@ export function localFindings(root, policy) {
   const read = (p) => (existsSync(join(root, p)) ? readFileSync(join(root, p), "utf8") : null);
   let tracked = null;
   try {
-    tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).split("\n").filter(Boolean);
+    // working tree files that are not ignored: doctor runs before the rendered files are committed
+    tracked = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).split("\n").filter(Boolean);
   } catch {
     tracked = null;
   }

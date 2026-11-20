@@ -94,3 +94,48 @@ describe("plan and apply", { skip: !existsSync(new URL("../templates/common/zh/C
     assert.equal(readFileSync(cases, "utf8"), '[{"id":"x"}]\n');
   });
 });
+
+describe("the CLI, as the init skill runs it", () => {
+  const RENDER = new URL("../tools/render.mjs", import.meta.url).pathname;
+  const raw = readFileSync(new URL("./fixtures/answers.json", import.meta.url), "utf8");
+  const run = (repoDir, ...args) => {
+    try {
+      const out = execFileSync(process.execPath, [RENDER, "--answers", join(repoDir, ".dev-process/answers.json"), "--target", repoDir, ...args], { encoding: "utf8" });
+      return { code: 0, out };
+    } catch (e) {
+      return { code: e.status, out: `${e.stdout}${e.stderr}` };
+    }
+  };
+  const withAnswers = (text) => {
+    const d = tempRepo();
+    execFileSync("mkdir", ["-p", join(d, ".dev-process")]);
+    writeFileSync(join(d, ".dev-process/answers.json"), text);
+    return d;
+  };
+
+  it("hand-written answers are not a conflict; write; then everything is unchanged (exit 0 throughout)", () => {
+    const d = withAnswers(raw);
+    assert.equal(run(d).code, 0);
+    const w = run(d, "--write");
+    assert.equal(w.code, 0, w.out);
+    assert.match(readFileSync(join(d, ".dev-process/answers.json"), "utf8"), /"version": 1/);
+    const again = run(d, "--json");
+    assert.equal(again.code, 0);
+    assert.deepEqual([...new Set(JSON.parse(again.out).map((e) => e.status))].sort(), ["keep", "unchanged"]);
+  });
+
+  it("exit 2 on bad answers, 3 on a conflict, 4 when the written result is inconsistent", () => {
+    assert.equal(run(withAnswers('{"repo":"x"}')).code, 2);
+    const d = withAnswers(raw);
+    execFileSync("mkdir", ["-p", join(d, ".github")]);
+    writeFileSync(join(d, ".github/CODEOWNERS"), "* @someone\n");
+    const c = run(d, "--write");
+    assert.equal(c.code, 3, c.out);
+    assert.match(c.out, /conflict\s+\.github\/CODEOWNERS/);
+    const bad = JSON.parse(raw);
+    bad.people.codeOwners = ["alice", "dave"]; // dave is not a trusted author
+    const e = run(withAnswers(JSON.stringify(bad)), "--write");
+    assert.equal(e.code, 4, e.out);
+    assert.match(e.out, /ERROR/);
+  });
+});

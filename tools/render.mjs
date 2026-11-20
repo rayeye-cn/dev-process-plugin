@@ -15,6 +15,8 @@
  *   conflict   on disk, differs, and either edited since the last render or never rendered by us ⇒ needs --force
  *   insert     a section (CLAUDE.md) whose file exists without our markers ⇒ appended, the rest of the file untouched
  *   keep       a seed file (the eval cases) that exists ⇒ never overwritten, it is the team's data
+ * `.dev-process/answers.json` is the renderer's own input: it is rewritten normalized and is never a conflict (the init and
+ * upgrade skills write it by hand first, so it always differs from the normalized form on the first run).
  *   remove     in the lock, no longer produced, untouched since ⇒ deleted
  *   orphan     in the lock, no longer produced, but edited ⇒ left alone and reported
  * After writing, the consistency checks (engine/core/consistency.mjs) run on the result.
@@ -64,7 +66,7 @@ export function manifest(ctx, answers) {
   const evalDir = posix.dirname(ctx.policy.paths.evalCases);
   const outs = [
     { out: ".dev-process/config.json", kind: "text", text: () => json(ctx.policy) },
-    { out: ".dev-process/answers.json", kind: "text", text: () => json(answers) },
+    { out: ".dev-process/answers.json", kind: "input", text: () => json(answers) },
     { out: ".dev-process/VERSION", kind: "text", text: () => `${pluginVersion()}\n` },
     { out: "CLAUDE.md", kind: "section", tmpl: tmpl("common/{lang}/CLAUDE.section.md.tmpl") },
     { out: ".github/pull_request_template.md", kind: "file", tmpl: tmpl("common/{lang}/pull_request_template.md.tmpl") },
@@ -152,7 +154,7 @@ export function plan(target, answers) {
       entries.push({ path: o.out, kind: o.kind, status, content, merged });
       continue;
     }
-    const status = onDisk === null ? "create" : onDisk === content ? "unchanged" : locked === sha(onDisk) ? "update" : "conflict";
+    const status = onDisk === null ? "create" : onDisk === content ? "unchanged" : o.kind === "input" || locked === sha(onDisk) ? "update" : "conflict";
     entries.push({ path: o.out, kind: o.kind, status, content });
   }
   for (const [path, hash] of Object.entries(lock.files)) {
