@@ -26,7 +26,9 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 - **Merge queue:** the built-in queue (on GitLab it builds candidates from GitLab's own merge ref). Planned: GitHub's native merge queue where the plan allows it, GitLab merge trains.
 - **Language:** Chinese or English, chosen at init.
 
-## Install (once released)
+## Install
+
+The repository is private: you need read access and git credentials that work without a prompt (SSH agent, or `gh auth setup-git`). Details, updates, pinning a version and team setup: [docs/install.md](docs/install.md).
 
 ```
 /plugin marketplace add rayeye-cn/dev-process-plugin

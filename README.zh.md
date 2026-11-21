@@ -26,7 +26,9 @@ English: [README.md](README.md).
 - **合并队列**：自建队列（GitLab 上用 GitLab 自己算的合并结果做试合）。计划支持：套餐允许时用 GitHub 原生合并队列，GitLab 用合并列车。
 - **语言**：中文或英文，初始化时选。
 
-## 安装（发布后）
+## 安装
+
+仓库是私有的：需要读权限，以及不弹提示就能用的 git 凭据（SSH agent，或 `gh auth setup-git`）。更新、固定版本、团队配置见 [docs/install.zh.md](docs/install.zh.md)。
 
 ```
 /plugin marketplace add rayeye-cn/dev-process-plugin
