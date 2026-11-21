@@ -1,4 +1,4 @@
-# GitLab design (M5)
+# GitLab design
 
 GitLab self-managed 17.11+ and gitlab.com, every tier (CE, EE without a license, Premium, Ultimate). Facts marked
 **[M6]** came from the documentation or GitLab's source; the E2E run on GitLab CE 19.6.1 (M6, below) checked most of
@@ -115,7 +115,7 @@ Found and fixed:
 Test-environment notes (not plugin issues): with `external_url` on `localhost`, webhooks resolve `::1`, so nginx must
 listen on IPv6 too; a runner restart orphans a running job in "canceling" (force-cancel it).
 
-## Checked after the M6 run (same instance, 2026-11-21)
+## Checked after the M6 run (same instance, 2026-11-20)
 
 - Statuses with `ref` = source branch land on an external pipeline; `/pipelines/:id/jobs` (also with
   `include_retried=true`) lists that pipeline's builds only: the generic statuses are not in it.
@@ -134,7 +134,7 @@ listen on IPv6 too; a runner restart orphans a running job in "canceling" (force
 
 - `TRIGGER_PAYLOAD` availability with 17.11's pipeline-variable restrictions (fixed in 18.5). M6 ran 19.6.1 only.
 - Approval webhook actions on EE without a license; Premium and Ultimate paths (approval rules, code owners, reset on
-  push) are covered by recorded API shapes only.
+  push) have unit tests only, with responses written from the API documentation.
 - Whether the outbound allowlist alone (without "allow requests to the local network") lets a webhook call the instance's
   own address.
 - System note texts ("changed target branch from", "approved this merge request", "…now targets the…") on an instance

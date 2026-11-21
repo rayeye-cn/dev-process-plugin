@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 (2026-11-21)
+## 1.0.0 (2026-11-20)
 
 First release. Installs a Claude-Code-team-style development and review process into a repository.
 

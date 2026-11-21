@@ -39,7 +39,7 @@ English: [README.md](README.md).
 
 ## 验证情况
 
-所有路径都有单元测试，用的是录下来的 API 返回格式（577 个测试）。端到端跑过的：
+所有路径都有单元测试（577 个），测试里的 API 返回是照各平台文档写的。端到端跑过的：
 
 - **GitLab**（CE 19.6.1，Free，跑在 Docker 里）：一次性设置（`apply-protection`，重复跑不出错）、webhook → 触发器 → 风险门、没有 Key 时评审作业留通知、代发评审（意见挂在改动行上、总结带标记、文字里的快捷命令不执行）、豁免与批准、作者签署、回复 `wrong:` 后再点"已解决"、队列（用 GitLab 算的合并结果做候选、机器人身份跑 CI、按 sha 合入）、语义冲突被队列踢出、GitLab 自动改目标分支的串联 MR、升级流程本身的 MR、每周指标、`doctor --remote`。细节见 [docs/design/gitlab.md](docs/design/gitlab.md)。
 - **GitHub**（私有沙盒仓库，Team 套餐）：初始化 PR 渲染并合入、规则集启用、没有 Key 时的通知被风险门引用、队列等风险门、改目标分支后 Claude 评审作业重跑且风险标签跟着变。
@@ -48,7 +48,7 @@ English: [README.md](README.md).
 
 - 两个平台上的真实 Claude 评审、AI 分档、夜间巡检、用例集回放：测试环境里没有 Anthropic API Key。
 - GitHub：一个 PR 完整过风险门并由队列合入（要真实评审和第二个账号）；Copilot 路径；Claude GitHub App 的实际行为。
-- GitLab：19.6.1 以外的版本（尤其是 17.11 对 `TRIGGER_PAYLOAD` 的限制）、Premium 与 Ultimate（只有录下来的 API 格式）、默认语言不是英文的实例。
+- GitLab：19.6.1 以外的版本（尤其是 17.11 对 `TRIGGER_PAYLOAD` 的限制）、Premium 与 Ultimate（只有单元测试）、默认语言不是英文的实例。
 
 ## 路线图
 
