@@ -21,7 +21,7 @@
  *     },
  *     protectedPaths: ["glob"…],         // never changed by any agent (the review process itself)
  *     neverNotify: [login…],             // never assigned, mentioned or asked for review
- *     labels?: { rolePrefix, ready, working, review, blocked },
+ *     labels?: { rolePrefix, ready, working, review, blocked, riskPrefix, queue, release },
  *     autoQueueLow?: true                // the runner may queue a pull request the gate judged low
  *   }
  */
@@ -30,7 +30,8 @@ import { posix } from "node:path";
 export const TEAM_FILE = ".dev-process/team.json";
 export const TOOL_NAMES = Object.freeze(["Read", "Grep", "Glob", "Edit", "Write", "Bash"]);
 export const END_STATES = Object.freeze(["done", "human"]);
-export const DEFAULT_LABELS = Object.freeze({ rolePrefix: "role:", ready: "agent:ready", working: "agent:working", review: "agent:review", blocked: "agent:blocked" });
+/** Agent labels, plus the review process labels the runner reads (risk tier prefix, queue, release). */
+export const DEFAULT_LABELS = Object.freeze({ rolePrefix: "role:", ready: "agent:ready", working: "agent:working", review: "agent:review", blocked: "agent:blocked", riskPrefix: "risk:", queue: "merge-queue", release: "release" });
 /** Always protected, whatever the team file says: the review process, its instructions and Claude Code's own config. */
 export const ALWAYS_PROTECTED = Object.freeze([".github/**", ".gitlab/**", ".gitlab-ci.yml", "**/CLAUDE.md", "CLAUDE.md", ".claude/**", ".mcp.json", ".dev-process/**"]);
 

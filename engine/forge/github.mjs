@@ -178,7 +178,8 @@ export function createGithub({ repo, env = process.env, fetch: fetchImpl = globa
     post: async (url, body) => (await request("POST", url, body ?? {})).data,
     put: async (url, body) => (await request("PUT", url, body ?? {})).data,
     patch: async (url, body) => (await request("PATCH", url, body ?? {})).data,
-    delete: async (url) => (await request("DELETE", url)).data,
+    /** DELETE, with a JSON body where the endpoint takes one (assignees, requested reviewers). */
+    delete: async (url, body) => (await request("DELETE", url, body)).data,
     /** All pages (100 per page). */
     async paginate(url) {
       const out = [];
