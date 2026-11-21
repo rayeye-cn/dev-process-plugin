@@ -138,6 +138,7 @@ describe("post-review CLI", () => {
     const g = gitlab();
     assert.deepEqual(await run(g, "garbage", { outcome: "success" }), { posted: "notice", reason: "aiReview.notice.noSummary" });
     assert.ok(g.calls.at(-1).body.body.startsWith(claudeNoticeMarker(HEAD)));
+    assert.match(g.calls.at(-1).body.body, /再推一次提交|push again/i, "GitLab's notice says what people can do there (no job re-run)");
     const noKey = gitlab();
     assert.equal((await run(noKey, null, { outcome: "skipped", keySet: false })).reason, "aiReview.notice.noKey");
 

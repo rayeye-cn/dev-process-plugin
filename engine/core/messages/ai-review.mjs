@@ -21,9 +21,16 @@ const zh = {
   "aiReview.skip.superseded": (p, h) => `AI 评审：PR 已经有更新的提交 ${h.short(p.sha, 12)}，那次推送自己会跑评审`,
   "aiReview.skip.reviewed": (p, h) => `AI 评审：${h.short(p.sha, 12)} 已经评审过（在最近一次改目标分支之后），不重复评审`,
 
-  "aiReview.notice.noKey": "AI 评审没有运行：仓库没有设置 ANTHROPIC_API_KEY 密钥。管理员加上后重跑 AI 评审作业；急的话有写权限的人可以发豁免命令。",
-  "aiReview.notice.failed": "AI 评审作业失败了，这个提交没有评审结果。打开作业日志看原因（密钥失效、额度用完、Claude GitHub App 没装等），修好后重跑作业。",
-  "aiReview.notice.noSummary": "AI 评审跑完了，但没有发出这个提交的总结评论，门不能算它评审过。重跑 AI 评审作业。",
+  "aiReview.notice.noKey": (p) =>
+    p.forge === "gitlab"
+      ? "AI 评审没有运行：项目没有设置 ANTHROPIC_API_KEY 变量（受保护、遮蔽）。管理员加上后再推一次提交（或等定时任务补起评审）；急的话有写权限的人可以发豁免命令。"
+      : "AI 评审没有运行：仓库没有设置 ANTHROPIC_API_KEY 密钥。管理员加上后重跑 AI 评审作业；急的话有写权限的人可以发豁免命令。",
+  "aiReview.notice.failed": (p) =>
+    p.forge === "gitlab"
+      ? "AI 评审作业失败了，这个提交没有评审结果。看默认分支上 ai-review 作业的日志找原因（Key 失效、额度用完、runner 不可用等），修好后再推一次提交。"
+      : "AI 评审作业失败了，这个提交没有评审结果。打开作业日志看原因（密钥失效、额度用完、Claude GitHub App 没装等），修好后重跑作业。",
+  "aiReview.notice.noSummary": (p) =>
+    p.forge === "gitlab" ? "AI 评审跑完了，但没有给出可用的回答，门不能算它评审过。再推一次提交重新评审。" : "AI 评审跑完了，但没有发出这个提交的总结评论，门不能算它评审过。重跑 AI 评审作业。",
 
   "aiReview.gitlab.prompt": (p) =>
     [
@@ -96,9 +103,16 @@ const en = {
   "aiReview.skip.superseded": (p, h) => `AI review: the PR has a newer commit ${h.short(p.sha, 12)}; that push runs its own review`,
   "aiReview.skip.reviewed": (p, h) => `AI review: ${h.short(p.sha, 12)} is already reviewed (after the latest target-branch change); not reviewing it again`,
 
-  "aiReview.notice.noKey": "The AI review did not run: the ANTHROPIC_API_KEY repository secret is not set. An admin adds it and re-runs the AI review job; if it is urgent, someone with write access can post the waiver.",
-  "aiReview.notice.failed": "The AI review job failed, so this commit has no review. Open the job log for the cause (revoked key, no credits, Claude GitHub App not installed, …), fix it and re-run the job.",
-  "aiReview.notice.noSummary": "The AI review finished without posting its summary comment for this commit, so the gate cannot count it. Re-run the AI review job.",
+  "aiReview.notice.noKey": (p) =>
+    p.forge === "gitlab"
+      ? "The AI review did not run: the project has no ANTHROPIC_API_KEY variable (protected, masked). An admin adds it, then push again (or the schedule starts the review); if it is urgent, someone with write access can post the waiver."
+      : "The AI review did not run: the ANTHROPIC_API_KEY repository secret is not set. An admin adds it and re-runs the AI review job; if it is urgent, someone with write access can post the waiver.",
+  "aiReview.notice.failed": (p) =>
+    p.forge === "gitlab"
+      ? "The AI review job failed, so this commit has no review. See the log of the ai-review job on the default branch (revoked key, no credits, no runner, …), fix it and push again."
+      : "The AI review job failed, so this commit has no review. Open the job log for the cause (revoked key, no credits, Claude GitHub App not installed, …), fix it and re-run the job.",
+  "aiReview.notice.noSummary": (p) =>
+    p.forge === "gitlab" ? "The AI review finished without a usable answer, so the gate cannot count it. Push again to review once more." : "The AI review finished without posting its summary comment for this commit, so the gate cannot count it. Re-run the AI review job.",
 
   "aiReview.gitlab.prompt": (p) =>
     [

@@ -425,3 +425,13 @@ describe("after a target-branch change, earlier reviews, sign-offs, approvals an
     assert.deepEqual(gate.findSignoff(comments, AUTHOR, HEAD, BASE_AT), { stale: OLD.slice(0, 12), beforeBase: true });
   });
 });
+
+describe("Claude on GitLab: the hint says what people can do there", async () => {
+  const { t } = await import("../engine/core/messages/index.mjs");
+  it("push again, not re-run the job (people cannot re-run the bot's jobs on GitLab)", () => {
+    const p = { ai: "Claude", reviewer: "claude", sha: "a".repeat(40), queueLabel: "merge-queue", staleBase: false, notice: null, ignored: null, cmd: "/waive-ai-review aaaa", extra: 1 };
+    assert.match(t("en", "missing.aiReview", { ...p, pr: "MR" }), /push again/);
+    assert.match(t("en", "missing.aiReview", { ...p, pr: "PR" }), /re-run the AI review job/);
+  });
+});
+

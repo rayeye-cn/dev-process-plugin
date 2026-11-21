@@ -204,6 +204,7 @@ export async function processOne(ctx, pr) {
     branch,
     gateContext: names.gateContext,
     prTerm: forge.prTerm,
+    blockedBy: full.blockedBy ?? null,
   };
   // Cheap checks first (fork, draft, conflict, required checks); only then spend dozens of API calls on the re-judge.
   let r = readiness({ ...facts, gate: { ok: true } });

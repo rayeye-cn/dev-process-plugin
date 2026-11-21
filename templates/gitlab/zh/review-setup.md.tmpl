@@ -29,7 +29,7 @@ GitLab 不会因评论或批准跑流水线。所以流程机器人在 `{{ defau
 ## 管理员清单（按顺序）
 
 1. **GitLab 17.11 或更高。** 流程用到的 merge ref、MR diff 版本与批准的系统便签以那时的行为为准。
-1. **Runner**：默认分支的流水线需要 Docker 执行器的 runner（机器人作业用 `node:{{ ci.node }}`）{{#if ci.tagsYaml}}，`tests` 还需要带对应 tag 的 runner{{/if}}。MR 流水线跑的是 MR 自己的代码，不要给它挂着机密的 runner。
+1. **Runner**：默认分支的流水线需要 Docker 执行器的 runner（机器人作业用 `node:{{ ci.node }}`）{{#if ci.tagsYaml}}，`tests` 还需要带对应 tag 的 runner{{/if}}。MR 流水线跑的是 MR 自己的代码，不要给它挂着机密的 runner。runner **至少要能同时跑两个作业**（runner 配置里 `concurrent` ≥ 2）：队列作业会占着一个位子等候选分支的 CI，只有一个位子时两者互相等。
 1. **跑设置**，用你自己的令牌（Maintainer 或 Owner，`api` 权限），先预演：
 
    ```sh

@@ -69,6 +69,14 @@ describe("readiness", () => {
     assert.equal(queue.readiness({ ...base, checkRuns: [ok("checks"), ok("tests", 1, "failure"), ok("release-gate")] }).state, "eject");
   });
 
+  it("the forge would refuse the merge for a fixable reason (GitLab: unresolved threads) ⇒ wait, no CI spent", () => {
+    const r = queue.readiness({ ...base, blockedBy: "discussions_not_resolved", prTerm: "MR" });
+    assert.equal(r.state, "wait");
+    assert.equal(r.code, "queue.wait.forgeBlock");
+    assert.match(tr("zh", r), /未解决的讨论串/);
+    assert.match(tr("en", r), /unresolved threads/);
+  });
+
   it("a check that ran several times ⇒ the latest run counts", () => {
     const runs = [ok("checks"), ok("tests", 1, "failure"), ok("tests", 9, "success"), ok("release-gate")];
     assert.equal(queue.readiness({ ...base, checkRuns: runs }).state, "ready");

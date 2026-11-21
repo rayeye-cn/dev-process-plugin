@@ -29,7 +29,7 @@ GitLab runs no pipeline on a comment or an approval. The process bot therefore w
 ## Admin checklist (in this order)
 
 1. **GitLab 17.11 or later.** The process uses the merge ref, MR diff versions and approval system notes as they work there.
-1. **Runners** for the default branch's pipelines with a Docker executor (the bot's jobs use `node:{{ ci.node }}`){{#if ci.tagsYaml}}, and runners with the tags `tests` uses{{/if}}. Merge request pipelines run the MR's own code: don't give them runners that hold secrets.
+1. **Runners** for the default branch's pipelines with a Docker executor (the bot's jobs use `node:{{ ci.node }}`){{#if ci.tagsYaml}}, and runners with the tags `tests` uses{{/if}}. Merge request pipelines run the MR's own code: don't give them runners that hold secrets. The runners must take **at least two jobs at once** (`concurrent` ≥ 2 in the runner's config): the queue job waits for its candidate's CI while it holds a slot, so with one slot the two wait for each other.
 1. **Run the setup** with your own token (Maintainer or Owner, `api` scope), first as a dry run:
 
    ```sh

@@ -173,9 +173,13 @@ const projectPath = (forge) => `/projects/${encodeURIComponent(forge.repo)}`;
 const mrPath = (forge, iid) => `${projectPath(forge)}/merge_requests/${iid}`;
 const branchPath = (forge, branch) => `${projectPath(forge)}/repository/branches/${encodeURIComponent(branch)}`;
 
+/** `detailed_merge_status` values that someone can fix in place: the queue waits on them instead of testing. */
+const WAIT_STATUSES = new Set(["discussions_not_resolved", "not_approved", "requested_changes", "need_rebase", "merge_request_blocked", "status_checks_must_pass", "jira_association_missing", "security_policy_violations", "locked_paths", "locked_lfs_files", "merge_time", "commits_status"]);
+
 /** A merge request in the queue's normalized shape. */
 export function normalizeMr(m) {
   return {
+    blockedBy: WAIT_STATUSES.has(m.detailed_merge_status) ? m.detailed_merge_status : null,
     number: m.iid,
     title: m.title ?? "",
     state: m.state === "opened" ? "open" : m.state,
@@ -261,12 +265,19 @@ export const gitlabQueueOps = Object.freeze({
    * "squash". Title and message become the merge commit message.
    */
   async mergeChange(forge, iid, { sha, method, title, message }) {
-    const m = await forge.rest.put(`${mrPath(forge, iid)}/merge`, {
-      sha,
-      squash: method === "squash",
-      merge_commit_message: message ? `${title}\n\n${message}` : title,
-      ...(method === "squash" ? { squash_commit_message: message ? `${title}\n\n${message}` : title } : {}),
-    });
+    let m;
+    try {
+      m = await forge.rest.put(`${mrPath(forge, iid)}/merge`, {
+        sha,
+        squash: method === "squash",
+        merge_commit_message: message ? `${title}\n\n${message}` : title,
+        ...(method === "squash" ? { squash_commit_message: message ? `${title}\n\n${message}` : title } : {}),
+      });
+    } catch (e) {
+      // 405 says only "Method Not Allowed": add GitLab's own reason.
+      const why = await forge.rest.get(mrPath(forge, iid)).then((x) => x.detailed_merge_status).catch(() => null);
+      throw Object.assign(new Error(`GitLab refused the merge (${e.status}${why ? `, ${why}` : ""})`), { status: e.status });
+    }
     return m?.merge_commit_sha ?? m?.squash_commit_sha ?? null;
   },
   /** GitLab closes the issues an MR names (`Closes #n`) itself when it merges, whoever merges: nothing to do. */

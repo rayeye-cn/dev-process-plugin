@@ -5,9 +5,20 @@
 
 /** How a missing AI review gets (re)started, per reviewer. */
 const autoHint = {
-  zh: { copilot: "通常每次推送后几分钟内自动评审；没来就在评审人列表里重新请求 Copilot", claude: "每次推送后评审作业自动运行，草稿不评审；没跑成就重跑 AI 评审作业" },
-  en: { copilot: "usually arrives a few minutes after each push; if not, re-request Copilot in the reviewers list", claude: "the review job runs after every push, not on drafts; if it failed, re-run the AI review job" },
+  zh: {
+    copilot: "通常每次推送后几分钟内自动评审；没来就在评审人列表里重新请求 Copilot",
+    claude: "每次推送后评审作业自动运行，草稿不评审；没跑成就重跑 AI 评审作业",
+    // GitLab: people cannot re-run the bot's jobs; a push starts a new review, the poll fills in missing ones.
+    claudeGitlab: "每次推送后自动评审，草稿不评审；没评成就再推一次提交，或等定时任务约 25 分钟后补起",
+  },
+  en: {
+    copilot: "usually arrives a few minutes after each push; if not, re-request Copilot in the reviewers list",
+    claude: "the review job runs after every push, not on drafts; if it failed, re-run the AI review job",
+    claudeGitlab: "a review starts after every push, not on drafts; if it failed, push again, or the schedule starts one about 25 minutes later",
+  },
 };
+/** The hint key: Claude on GitLab works differently. */
+const hintKey = (p) => (p.reviewer === "claude" && p.pr === "MR" ? "claudeGitlab" : p.reviewer);
 /** Does the gate refresh when the review lands? Copilot's review event does not reach it; Claude's summary comment does. */
 const rejudgeHint = {
   zh: (reviewer, label) =>
@@ -21,11 +32,11 @@ const rejudgeHint = {
 const staleHint = {
   zh: (reviewer) =>
     reviewer === "claude"
-      ? "；它的评审在改目标分支之前、看的是旧 diff。改目标分支时评审作业会自己重跑；没跑（比如合并队列合掉上游 PR 后自动改的目标分支）就手动重跑 AI 评审作业"
+      ? "；它的评审在改目标分支之前、看的是旧 diff。改目标分支时评审会自己重跑（GitLab 上也包括队列合掉上游后自动改的目标）；没跑就再推一次提交或重跑 AI 评审作业"
       : "；它的评审在改目标分支之前、看的是旧 diff，门会请它重新评审",
   en: (reviewer) =>
     reviewer === "claude"
-      ? "; its review predates the target-branch change and saw an old diff. The review job re-runs on a retarget by itself; if it did not (e.g. the merge queue retargeted the PR after merging the PR below it), re-run the AI review job"
+      ? "; its review predates the target-branch change and saw an old diff. The review re-runs on a retarget by itself (on GitLab also when the queue merged the one below and GitLab retargeted); if it did not, push again or re-run the AI review job"
       : "; its review predates the target-branch change and saw an old diff, so the gate asks it to review again",
 };
 
@@ -96,7 +107,7 @@ const en = {
   "base.changed": (p) => `The target branch changed at ${p.at}: ${p.ai} reviews, sign-offs, approvals and waivers before then don't count`,
 
   "missing.aiReview": (p, h) =>
-    `Wait for ${p.ai} to review the head commit ${h.short(p.sha)} (${autoHint.en[p.reviewer] ?? autoHint.en.copilot}; ${rejudgeHint.en(p.reviewer, p.queueLabel)})` +
+    `Wait for ${p.ai} to review the head commit ${h.short(p.sha)} (${autoHint.en[hintKey(p)] ?? autoHint.en.copilot}; ${rejudgeHint.en(p.reviewer, p.queueLabel)})` +
     (p.staleBase ? staleHint.en(p.reviewer) : "") +
     (p.notice !== null && p.notice !== undefined ? `; it left only a notice on this commit: "${p.notice || "(empty body)"}"` : "") +
     (p.ignored ? `; ${h.tr(p.ignored)}` : "") +

@@ -39,6 +39,7 @@ export function queueChecks(required = DEFAULTS.checks.required, skippable = DEF
  * @param input.checkRuns  check runs on the head: `{ name, id, status, conclusion }`.
  * @param input.gate       the queue's own re-judge of this change (gateVerdict); absent ⇒ wait.
  * @param input.branch     target branch (wording only).
+ * @param input.blockedBy  why the forge would refuse the merge now (GitLab `detailed_merge_status`), or null.
  * @returns `{ state: 'ready' | 'wait' | 'eject', code, params }`
  */
 export function readiness({
@@ -52,11 +53,15 @@ export function readiness({
   branch,
   gateContext = DEFAULTS.names.gateContext,
   prTerm = "PR",
+  blockedBy = null,
 }) {
   // A fork's code would run in this repository's CI (on the candidate branch) with the repository's permissions.
   if (fromFork) return { state: "eject", ...item("queue.eject.fork", { pr: prTerm }) };
   if (draft) return { state: "wait", ...item("queue.wait.draft") };
   if (conflicted) return { state: "eject", ...item("queue.eject.conflict", { branch }) };
+  // The forge itself would refuse the merge for a reason someone can fix in place (GitLab: unresolved threads, missing
+  // approvals…): wait instead of testing a merge that cannot happen.
+  if (blockedBy) return { state: "wait", ...item("queue.wait.forgeBlock", { reason: blockedBy, pr: prTerm }) };
   for (const name of queueChecks(required, skippable)) {
     // A check with the same name may have run several times: the latest (highest id) counts.
     const run = checkRuns.filter((c) => c.name === name).sort((a, b) => b.id - a.id)[0];

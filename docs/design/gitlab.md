@@ -75,6 +75,35 @@ Any Developer can post a commit status, and a status named like a job retires th
   references and quick actions (`noQuickActions` runs on every note and issue text the adapter writes: GitLab executes
   `/merge`, `/approve`, … at the start of a line, also for API notes).
 
+## M6 results (GitLab CE 19.6.1, local, 2026-11-20)
+
+Verified on a real instance:
+- The setup (`apply-protection`) end to end, and idempotent: protected branch, settings, project access token
+  (`project_<id>_bot_<32 hex>`), environment-scoped protected variable, bot-owned trigger and schedules, webhook with a
+  masked `{token}` URL variable.
+- Webhook → trigger → the bot's pipeline on the default branch with `TRIGGER_PAYLOAD`; the bot's own events end as
+  no-ops.
+- Commit statuses posted with `ref` = the source branch land on an external pipeline; the MR pipeline is untouched.
+- The review pipeline (no key ⇒ notice; the gate quotes it); `post-review` against the real API: a DiffNote on the
+  changed line, the summary with the marker, a `/merge` line in the model's text not executed.
+- Waiver + approval (`approved_at` present on 19.x); sign-off; `wrong:` reply.
+- The queue: `merge_ref` returns `commit_id`, parents [target, MR head]; a branch at that commit; the candidate pipeline
+  runs as the bot with our variables; the bot merges with the sha; the merge commit cites `!N` and carries the waiver
+  trailer; the candidate branch is deleted.
+- GitLab's CI lint accepts both rendered files (`environment: action: access`, `resource_group`, `extends` lists,
+  `workflow:rules:auto_cancel`).
+
+Found and fixed:
+- Pending bot pipelines were auto-canceled as "redundant" whenever a merge moved the default branch: the bot's workflow
+  rule now sets `auto_cancel: on_new_commit: none`.
+- The queue tested candidates GitLab would refuse to merge (unresolved threads ⇒ 405 after a full CI run): it now waits
+  on GitLab's `detailed_merge_status` blockers, and a refused merge names GitLab's reason.
+- Texts that told GitLab users to re-run jobs (they can't re-run the bot's jobs): now "push again".
+- Runners need two concurrent slots (the queue job waits while holding one).
+
+Test-environment notes (not plugin issues): with `external_url` on `localhost`, webhooks resolve `::1`, so nginx must
+listen on IPv6 too; a runner restart orphans a running job in "canceling" (force-cancel it).
+
 ## Unverified until M6
 
 - Commit status with `ref` = source branch lands on an external / branch pipeline and leaves the MR pipeline alone.

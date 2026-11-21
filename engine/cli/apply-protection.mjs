@@ -182,7 +182,7 @@ export async function applyGitlab(forge, policy, { dryRun = false, env = process
   // A new trigger has a new token: the webhook must be rewritten even when its events are right.
   if (hookOk && !triggerCreated) act("gitlab.webhook", "ok");
   else {
-    act("gitlab.webhook", hook ? "update" : "create", { events: Object.keys(events).filter((k) => events[k] === true) });
+    act("gitlab.webhook", hook ? "update" : "create", { events: Object.keys(events).filter((k) => k.endsWith("_events") && events[k] === true) });
     if (!dryRun && triggerToken) {
       const body = { url: hookUrl, url_variables: [{ key: "token", value: triggerToken }], ...events };
       try {

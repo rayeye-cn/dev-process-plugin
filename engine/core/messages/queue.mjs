@@ -9,6 +9,7 @@ const zh = {
   "queue.wait.draft": "还是草稿",
   "queue.wait.checkMissing": (p) => `必需检查 ${p.name} 还没跑`,
   "queue.wait.checkRunning": (p) => `必需检查 ${p.name} 还在跑`,
+  "queue.wait.forgeBlock": (p) => `GitLab 现在不让合并（${{ discussions_not_resolved: "还有未解决的讨论串：回复后点 resolve", not_approved: "缺 GitLab 要求的批准", requested_changes: "有人要求修改", need_rebase: "GitLab 要求先 rebase", merge_request_blocked: "被别的 MR 挡住", status_checks_must_pass: "外部状态检查未通过", jira_association_missing: "缺 Jira 关联", security_policy_violations: "违反安全策略", locked_paths: "路径被锁", locked_lfs_files: "LFS 文件被锁", merge_time: "还没到允许合并的时间", commits_status: "提交状态不允许" }[p.reason] ?? p.reason}），处理后队列会接着走`,
   "queue.wait.gatePending": (p) => `${p.gate} 还没重判`,
   "queue.eject.fork": (p) => `fork 来的 ${p.pr} 不进队列（它的代码会带着本仓的权限在 CI 里跑），请从本仓分支提 ${p.pr}`,
   "queue.eject.conflict": (p) => `与 ${p.branch} 有冲突，请先更新分支`,
@@ -57,6 +58,7 @@ const en = {
   "queue.wait.draft": "still a draft",
   "queue.wait.checkMissing": (p) => `required check ${p.name} has not run yet`,
   "queue.wait.checkRunning": (p) => `required check ${p.name} is still running`,
+  "queue.wait.forgeBlock": (p) => `GitLab will not merge now (${{ discussions_not_resolved: "unresolved threads: reply, then resolve them", not_approved: "approvals GitLab requires are missing", requested_changes: "someone requested changes", need_rebase: "GitLab requires a rebase first", merge_request_blocked: "blocked by another MR", status_checks_must_pass: "external status checks have not passed", jira_association_missing: "no Jira issue linked", security_policy_violations: "a security policy is violated", locked_paths: "a path is locked", locked_lfs_files: "an LFS file is locked", merge_time: "not yet within the merge window", commits_status: "the commit status does not allow it" }[p.reason] ?? p.reason}); the queue goes on once that is fixed`,
   "queue.wait.gatePending": (p) => `${p.gate} has not been re-evaluated yet`,
   "queue.eject.fork": (p) =>
     `${p.pr}s from forks don't enter the queue (their code would run in CI with this repository's permissions); open the ${p.pr} from a branch in this repository`,

@@ -67,7 +67,7 @@ export async function postReview({ forge, policy, reviewer, number, sha, raw, ou
     // No usable answer: the same notices as on GitHub ("success" without an answer ⇒ noSummary).
     const v = verifyDecision({ reviewer, change, eventHead: sha, outcome, keySet });
     if (!v.notice) return { posted: null, reason: v.reason };
-    const body = `${claudeNoticeMarker(change.headSha)}\n${tr(policy.language, v.notice)}`;
+    const body = `${claudeNoticeMarker(change.headSha)}\n${tr(policy.language, { ...v.notice, params: { ...v.notice.params, forge: forge.id } })}`;
     if (hasNotice(change.comments, forge.ciIdentity, body, change.baseChangedAt)) return { posted: null, reason: "posted" };
     await forge.postComment(number, body);
     log(`[post-review] !${number}: no usable review (${outcome}); left a notice (${v.notice.code})`);

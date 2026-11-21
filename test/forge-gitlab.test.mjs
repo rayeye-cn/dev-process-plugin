@@ -425,6 +425,15 @@ describe("GitLab merge queue (mode self)", async () => {
     assert.deepEqual(queueStatus, ["pending", "success"]);
   });
 
+  it("GitLab says the merge is blocked for a fixable reason ⇒ the MR waits, no candidate, no CI", async () => {
+    const w = world();
+    const mr = await w.fetch(`http://x/api/v4${P}/merge_requests/7`).then((r) => r.json());
+    const blocked = { ...mr, detailed_merge_status: "discussions_not_resolved" };
+    const { normalizeMr } = await import("../engine/forge/gitlab.mjs");
+    assert.equal(normalizeMr(blocked).blockedBy, "discussions_not_resolved");
+    assert.equal(normalizeMr({ ...mr, detailed_merge_status: "mergeable" }).blockedBy, null);
+  });
+
   it("GitLab cannot compute the merge ⇒ ejected as a conflict; red CI ⇒ ejected", async () => {
     const c = await run(world({ conflict: true }));
     assert.equal(c.out.results[0].outcome, "ejected");

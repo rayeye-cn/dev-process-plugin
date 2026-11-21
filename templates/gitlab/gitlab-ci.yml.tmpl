@@ -13,6 +13,11 @@ workflow:
     # nothing runs in those.
     - if: $CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "parent_pipeline"
       when: never
+    # The process bot's pipelines on {{ defaultBranch }} must never be auto-canceled as "redundant" when a merge moves the
+    # branch: a gate, review or queue run that has not started yet would be lost.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(trigger|schedule|api|web)$/
+      auto_cancel:
+        on_new_commit: none
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     # The queue starts its candidates' CI itself (with variables); their push pipelines would only run it twice.
     - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^{{ policy.names.queueContext }}\//

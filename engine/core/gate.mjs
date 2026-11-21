@@ -250,6 +250,7 @@ export function evaluate({
       item("missing.aiReview", {
         ai,
         reviewer: reviewer.id,
+        pr,
         sha: headSha,
         queueLabel: policy.names.queueLabel,
         staleBase: aiReview.staleBase,
