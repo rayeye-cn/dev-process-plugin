@@ -92,6 +92,16 @@ Verified on a real instance:
   trailer; the candidate branch is deleted.
 - GitLab's CI lint accepts both rendered files (`environment: action: access`, `resource_group`, `extends` lists,
   `workflow:rules:auto_cancel`).
+- The scenarios: a docs-only MR (waiver + one approval); a medium MR whose AI thread blocks until a `wrong:` reply,
+  then waits for "resolve"; a high-tier MR (sign-off + one other approval) that upgrades the process itself with the new
+  plugin (only changed files re-rendered, the eval cases kept); a semantic-conflict pair (the second MR ejected when its
+  candidate CI fails on top of the first); a stacked MR retargeted by GitLab after its parent merged (the note
+  "deleted the `x` branch. This merge request now targets the `main` branch", an event in the bot's name, the gate and the
+  review re-run, the notice re-posted after the base change).
+- The weekly metrics from GitLab's data (merged MRs, tiers, `wrong:` replies, the waiver trailer, fix MRs) into an issue.
+- `doctor --remote` against the instance: only the expected findings.
+
+Not run (need an Anthropic API key): a real Claude review, the classifier, the nightly sweep, the review eval.
 
 Found and fixed:
 - Pending bot pipelines were auto-canceled as "redundant" whenever a merge moved the default branch: the bot's workflow
