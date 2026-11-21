@@ -58,20 +58,20 @@ each repository to re-render its files with the new version (it shows the plan a
 ## Optional: register the marketplace in a repository
 
 So that everyone who opens a repository in Claude Code gets the marketplace, run once in that repository and commit
-the `.claude/settings.json` it writes:
+the `.claude/settings.json` the two commands write:
 
 ```
 claude plugin marketplace add rayeye-cn/dev-process-plugin --scope project
+claude plugin install dev-process@dev-process-plugin --scope project
 ```
 
-The result looks like this (`autoUpdate` is optional):
+The first writes `extraKnownMarketplaces`, the second `enabledPlugins` (add `"autoUpdate": true` by hand if wanted):
 
 ```json
 {
   "extraKnownMarketplaces": {
     "dev-process-plugin": {
-      "source": { "source": "github", "repo": "rayeye-cn/dev-process-plugin" },
-      "autoUpdate": true
+      "source": { "source": "github", "repo": "rayeye-cn/dev-process-plugin" }
     }
   },
   "enabledPlugins": { "dev-process@dev-process-plugin": true }

@@ -55,21 +55,21 @@ claude plugin update dev-process@dev-process-plugin
 
 ## 可选：在仓库里登记插件市场
 
-想让每个用 Claude Code 打开这个仓库的人都能看到这个插件市场：在仓库里运行一次下面的命令，
-把它写出的 `.claude/settings.json` 提交上去：
+想让每个用 Claude Code 打开这个仓库的人都能看到这个插件市场：在仓库里运行一次下面两条命令，
+把它们写出的 `.claude/settings.json` 提交上去：
 
 ```
 claude plugin marketplace add rayeye-cn/dev-process-plugin --scope project
+claude plugin install dev-process@dev-process-plugin --scope project
 ```
 
-写出来大致是这样（`autoUpdate` 可选）：
+第一条写 `extraKnownMarketplaces`，第二条写 `enabledPlugins`（想自动更新就手动加上 `"autoUpdate": true`）：
 
 ```json
 {
   "extraKnownMarketplaces": {
     "dev-process-plugin": {
-      "source": { "source": "github", "repo": "rayeye-cn/dev-process-plugin" },
-      "autoUpdate": true
+      "source": { "source": "github", "repo": "rayeye-cn/dev-process-plugin" }
     }
   },
   "enabledPlugins": { "dev-process@dev-process-plugin": true }
