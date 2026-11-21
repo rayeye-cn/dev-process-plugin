@@ -55,6 +55,7 @@ test("childEnv: what the CLI needs, the agent's config and token, never a GitHub
   assert.equal(w.USERPROFILE, "C:\\Users\\u");
   assert.equal(w.CLAUDE_CONFIG_DIR, "C:\\cfg");
   assert.equal(w.CLAUDE_CODE_OAUTH_TOKEN, "tok");
+  assert.equal(w.CLAUDE_CODE_USE_POWERSHELL_TOOL, "0");
   for (const k of ["GH_TOKEN", "GITHUB_TOKEN", "ANTHROPIC_API_KEY"]) assert.ok(!(k in w), k);
   const m = childEnv("mac", { base, configDir: "/cfg", token: "tok" });
   assert.deepEqual(Object.keys(m).sort(), ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HOME", "LANG", "PATH", "USER"]);
@@ -98,6 +99,8 @@ test("resolveClaude on Windows: claude.exe first, else the exe the npm package s
   const shipped = resolveClaude("windows", ["C:\\npm\\claude.cmd"], (p) => /claude-code[\\/]bin[\\/]claude\.exe$/.test(p));
   assert.match(shipped, /node_modules.@anthropic-ai.claude-code.bin.claude\.exe$/);
   assert.equal(resolveClaude("windows", ["C:\\npm\\claude.cmd"], () => false), null);
+  // the native installer's place, not on PATH
+  assert.match(resolveClaude("windows", [], (p) => /\.local[\\/]bin[\\/]claude\.exe$/.test(p), "C:\\Users\\u"), /\.local.bin.claude\.exe$/);
   assert.equal(resolveClaude("mac", ["/usr/local/bin/claude"]), "/usr/local/bin/claude");
 });
 

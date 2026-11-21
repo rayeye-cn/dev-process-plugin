@@ -60,7 +60,7 @@ const which = (cmd) => whichAll(cmd)[0] ?? null;
  * The Claude executable to spawn (pure). On Windows a `.cmd` / `.ps1` npm shim cannot be spawned without a shell, so
  * the native `claude.exe` is preferred, or the one the npm package ships next to the shim.
  */
-export function resolveClaude(platform, candidates, exists = existsSync) {
+export function resolveClaude(platform, candidates, exists = existsSync, profile = process.env.USERPROFILE ?? "") {
   if (platform !== "windows") return candidates[0] ?? null;
   const exe = candidates.find((c) => /\.exe$/i.test(c));
   if (exe) return exe;
@@ -68,7 +68,9 @@ export function resolveClaude(platform, candidates, exists = existsSync) {
     const shipped = join(dirname(c), "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
     if (exists(shipped)) return shipped;
   }
-  return null;
+  // The native installer puts it here and does not add it to PATH.
+  const native = profile ? join(profile, ".local", "bin", "claude.exe") : null;
+  return native && exists(native) ? native : null;
 }
 
 /** The Task Scheduler definition (pure): every N minutes while the person is logged on, hidden console, one at a time. */

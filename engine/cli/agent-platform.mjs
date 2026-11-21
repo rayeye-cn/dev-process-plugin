@@ -63,7 +63,9 @@ export function childEnv(platform, { base = process.env, configDir, token }) {
   const pick = (keys) => Object.fromEntries(keys.filter((k) => base[k] !== undefined).map((k) => [k, base[k]]));
   const common = { CLAUDE_CONFIG_DIR: configDir, CLAUDE_CODE_OAUTH_TOKEN: token };
   if (platform === "windows") {
-    return { ...pick(["USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "PATH", "Path", "PATHEXT", "ComSpec", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS"]), ...common };
+    // No PowerShell tool either (it runs unsandboxed on Windows; --restricted leaves it out unless --tools names it,
+    // and this makes sure even then).
+    return { CLAUDE_CODE_USE_POWERSHELL_TOOL: "0", ...pick(["USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "PATH", "Path", "PATHEXT", "ComSpec", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS"]), ...common };
   }
   return { HOME: base.HOME ?? "", USER: base.USER ?? "", PATH: base.PATH ?? "/usr/bin:/bin", LANG: "en_US.UTF-8", ...common };
 }

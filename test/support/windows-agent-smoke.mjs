@@ -18,18 +18,21 @@ const work = process.argv[2];
 if (!work || process.platform !== "win32") throw new Error("usage (Windows only): windows-agent-smoke.mjs <work dir>");
 mkdirSync(work, { recursive: true });
 const run = (cmd, args, { env, input } = {}) => spawnSync(cmd, args, { encoding: "utf8", windowsHide: true, input: input ?? "", env: env ? { ...process.env, ...env } : process.env });
-const ok = (cond, what) => {
-  if (!cond) throw new Error(`FAIL: ${what}`);
+const ok = (cond, what, r = null) => {
+  if (!cond) throw new Error(`FAIL: ${what}${r ? `\n  status ${r.status}\n  stdout ${String(r.stdout).slice(0, 800)}\n  stderr ${String(r.stderr).slice(0, 1500)}` : ""}`);
   console.log(`ok: ${what}`);
 };
 
 // 1. DPAPI
 const fake = "sk-ant-oat01-SMOKETESTSMOKETEST";
 const st = tokenCommand("windows", "store", { home: work, token: fake });
-ok(run(st.cmd, st.args, { env: st.env, input: st.input }).status === 0, "token stored with DPAPI");
+const stored = run(st.cmd, st.args, { env: st.env, input: st.input });
+ok(stored.status === 0, "token stored with DPAPI", stored);
 const blob = readFileSync(join(work, "claude-token.dpapi"), "utf8");
 ok(!blob.includes("SMOKETEST"), "the stored file is not the token in clear");
-ok(readToken("windows", run, { home: work }) === fake, "token reads back");
+const rd = tokenCommand("windows", "read", { home: work });
+const back = run(rd.cmd, rd.args, { env: rd.env });
+ok(readToken("windows", run, { home: work }) === fake, "token reads back", { ...back, stdout: back.stdout === fake ? "(the fake token)" : back.stdout });
 const del = tokenCommand("windows", "delete", { home: work });
 run(del.cmd, del.args, { env: del.env });
 ok(!existsSync(join(work, "claude-token.dpapi")), "token removed");
@@ -46,7 +49,7 @@ writeFileSync(taskFile, Buffer.from(`﻿${xml}`, "utf16le"));
 const S = schedulerCommands("windows", { taskFile });
 run(...S.unload);
 const reg = run(...S.install);
-ok(reg.status === 0, `task registered (${(reg.stdout || reg.stderr).trim()})`);
+ok(reg.status === 0, "task registered", reg);
 ok(run(...S.query).status === 0, "task queryable");
 // the exact action of the task, run directly
 const args = /<Arguments>(.*)<\/Arguments>/.exec(xml)[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&");
