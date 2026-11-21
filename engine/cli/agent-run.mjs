@@ -567,7 +567,8 @@ async function main(argv = process.argv.slice(2)) {
         log: (s) => logLine(`${repo}: ${s}`),
       });
       logLine(`${repo}: ${JSON.stringify(result)}`);
-      if (team.people.some((p) => p.lead && p.login.toLowerCase() === login.toLowerCase())) await leadReports({ forge, team, repo, home, log: logLine });
+      // Reports are part of the full mode (the comment-only pilot posts nothing but its comments).
+      if (config.mode === "full" && !args["dry-run"] && team.people.some((p) => p.lead && p.login.toLowerCase() === login.toLowerCase())) await leadReports({ forge, team, repo, home, log: logLine });
     }
   } finally {
     release();
