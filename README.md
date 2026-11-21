@@ -39,7 +39,7 @@ Then, in the repository to set up: `/dev-process:init`.
 
 ## Role agents (1.1, pilot)
 
-Optionally, each participant's computer can run a **role agent**: a scheduled job that picks up the GitHub issues assigned to that person for their role (product, UI, engineering, marketing…), works on them with Claude Code and hands them on to the next role. The model gets no GitHub credential and runs in a sandbox; a deterministic runner does every write under the person's login, and the review process stays the human gate (sign-off, approvals, merges, releases and publishing are always people). Set it up per machine with `/dev-process:agent`; the team, roles and hand-offs live in `.dev-process/team.json`. Design and the measured safety checks: [docs/design/agents.md](docs/design/agents.md). macOS and GitHub only for now.
+Optionally, each participant's computer can run a **role agent**: a scheduled job that picks up the GitHub issues assigned to that person for their role (product, UI, engineering, marketing…), works on them with Claude Code and hands them on to the next role. The model gets no GitHub credential and runs in a sandbox; a deterministic runner does every write under the person's login, and the review process stays the human gate (sign-off, approvals, merges, releases and publishing are always people). Set it up per machine with `/dev-process:agent`; the team, roles and hand-offs live in `.dev-process/team.json`. Design and the safety checks run so far: [docs/design/agents.md](docs/design/agents.md). macOS and GitHub only for now; not yet run end to end against a real repository.
 
 ## What has been validated
 

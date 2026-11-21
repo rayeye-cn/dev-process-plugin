@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claudeArgs, runRepo } from "../engine/cli/agent-run.mjs";
+import { claudeArgs, parsePorcelainZ, runRepo } from "../engine/cli/agent-run.mjs";
 import { validateTeam } from "../engine/core/team.mjs";
 
 const team = validateTeam({
@@ -248,4 +248,36 @@ test("housekeeping: stale working issue stopped; low agent PR queued once per he
   const r2 = await go({ login: "dev-b", ops, work: fakeWork(), claude: answer({}) });
   assert.deepEqual(r2.queued, []);
   assert.deepEqual(r2.reminded, []);
+});
+
+test("parsePorcelainZ: raw non-ASCII paths, a leading-space status, renames as delete + add", () => {
+  assert.deepEqual(parsePorcelainZ(" M keep.txt\0D  .github/保护.yml\0A  moved.yml\0?? .prd/写标/新.md\0"), ["keep.txt", ".github/保护.yml", "moved.yml", ".prd/写标/新.md"]);
+});
+
+test("a known secret in the changes: nothing is committed", async () => {
+  const ops = fakeOps({ issues: [issue({ number: 60, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
+  const work = { ...fakeWork({ files: ["src/a.ts"] }), changedText: async () => "+const t = 'sk-ant-oat01-SECRETSECRET';" };
+  const r = await go({ login: "dev-b", ops, work, secrets: ["sk-ant-oat01-SECRETSECRET"], claude: answer({ status: "done", summary: "s", next: "done", pr: { title: "t", body: "b" } }) });
+  assert.equal(r.task.result, "failed");
+  assert.ok(!work.calls.some((c) => c[0] === "commitAndPush"));
+  assert.doesNotMatch(JSON.stringify(ops.writes), /SECRETSECRET/);
+});
+
+test("the commit message keeps model text neutralized (no live closing keyword or mention)", async () => {
+  const ops = fakeOps({ issues: [issue({ number: 61, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
+  const work = fakeWork({ files: ["src/a.ts"] });
+  await go({ login: "dev-b", ops, work, claude: answer({ status: "done", summary: "s", next: "done", pr: { title: "fix: closes #12 for @quiet-x", body: "b" } }) });
+  const msg = work.calls.find((c) => c[0] === "commitAndPush")[2];
+  assert.doesNotMatch(msg, /#12/);
+  assert.doesNotMatch(msg, /@quiet/);
+});
+
+test("the PR body ends with the repository's PR template (its empty Closes line removed)", async () => {
+  const ops = fakeOps({ issues: [issue({ number: 62, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
+  const work = { ...fakeWork({ files: ["src/a.ts"] }), readDefault: async (p) => (p === ".github/pull_request_template.md" ? "Closes #\n\n## Risk\n\n## Sign-off\n" : "# i") };
+  await go({ login: "dev-b", ops, work, claude: answer({ status: "done", summary: "s", next: "done", pr: { title: "t", body: "b" } }) });
+  const body = ops.writes.find((w) => w[0] === "createPull")[2].body;
+  assert.match(body, /^Closes #62/);
+  assert.match(body, /---\n\n## Risk\n\n## Sign-off$/);
+  assert.equal(body.match(/Closes #/g).length, 1);
 });

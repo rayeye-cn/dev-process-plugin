@@ -198,7 +198,14 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
         return out;
       }
       const title = clean(result.pr?.title || issue.title);
-      await work.commitAndPush(prepared.dir, prepared.branch, `${title.replaceAll("​", "")}\n\nAgent-Run: ${run}\nAgent-Role: ${role}\nRefs: #${issue.number}`);
+      const template = work.readDefault ? await work.readDefault(".github/pull_request_template.md").catch(() => "") : "";
+      // The title stays neutralized (zero-width spaces kept): a live "closes #12" or "@someone" in a commit message would
+      // close another issue on merge or notify someone. Known secrets in the changes: refuse.
+      if (work.changedText) {
+        const text = await work.changedText(prepared.dir);
+        if (secrets.some((v) => typeof v === "string" && v.length >= 8 && text.includes(v))) return await stop(out, "failed", lang === "zh" ? "改动里出现了令牌，已拒绝提交" : "a token appeared in the changes; refused");
+      }
+      await work.commitAndPush(prepared.dir, prepared.branch, `${title}\n\nAgent-Run: ${run}\nAgent-Role: ${role}\nRefs: #${issue.number}`);
       const body = [
         `${team.roles[next] ? "Refs" : "Closes"} #${issue.number}`,
         "",
@@ -211,6 +218,8 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
         say("agent.pr.footer", { role, run }),
         "",
         marker({ run, role, issue: issue.number }),
+        // The repository's own PR template follows, for the author to complete (risk, recovery, sign-off).
+        ...(template ? ["", "---", "", template.replace(/^\s*(Closes|Refs) #\s*$/gim, "").trim()] : []),
       ].join("\n");
       pr = await ops.createPull({ head: prepared.branch, base, title, body });
       await ops.dropReviewers(pr.number, team.neverNotify);
@@ -277,6 +286,12 @@ async function assignTo(ops, team, issue, role) {
 
 /* ───────────── real I/O (the machine) ───────────── */
 
+/** `git status --porcelain=v1 -z --no-renames` output → paths. */
+export function parsePorcelainZ(out) {
+  return String(out).split("\0").filter(Boolean).map((e) => e.slice(3));
+}
+
+
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts }).trim();
 
 function boundOps(forge) {
@@ -323,11 +338,19 @@ function machineWork({ repo, base, home }) {
       }
       return { ok: true };
     },
-    changedFiles: async (dir) => sh("git", ["-C", dir, "status", "--porcelain=v1", "-uall"]).split("\n").filter(Boolean).map((l) => l.slice(3).replace(/^.* -> /, "")),
+    // Raw paths (no quoting of non-ASCII names), NUL-separated, renames as delete + add so a removed protected file shows.
+    changedFiles: async (dir) => parsePorcelainZ(execFileSync("git", ["-C", dir, "-c", "core.quotePath=false", "status", "--porcelain=v1", "-z", "--no-renames", "-uall"], { encoding: "utf8" })), // not trimmed: " M path" starts with a space
+    // No hooks: setup commands (npm ci) may point core.hooksPath into the worktree, where the model could edit a hook.
     commitAndPush: async (dir, branch, message) => {
-      sh("git", ["-C", dir, "add", "-A"]);
-      sh("git", ["-C", dir, "commit", "--quiet", "-m", message]);
-      sh("git", ["-C", dir, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`]);
+      const g = (...a) => sh("git", ["-C", dir, "-c", "core.hooksPath=/dev/null", ...a]);
+      g("add", "-A");
+      g("commit", "--quiet", "--no-verify", "-m", message);
+      g("push", "--quiet", "--no-verify", "origin", `HEAD:refs/heads/${branch}`);
+    },
+    // Changed content (tracked changes and new files), to look for known secrets before anything is committed.
+    changedText: async (dir) => {
+      sh("git", ["-C", dir, "add", "-A", "--intent-to-add"]);
+      return execFileSync("git", ["-C", dir, "-c", "core.quotePath=false", "diff", "--no-ext-diff", "--text"], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
     },
     cleanup: async (dir, branch) => {
       try {

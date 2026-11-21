@@ -62,7 +62,14 @@ Run, not read:
   from the person's profile. The default model in an empty config dir was Sonnet, so the role sets `--model`.
 - A LaunchAgent (`launchctl bootstrap gui/<uid>` + `kickstart`) reads the token from the keychain without a prompt and
   completes the same run (7 s).
-- Cost of a real engineering task: not measured yet (phase 2, comment-only, on the pilot repository).
+- The production arguments (`claudeArgs`, with the worktree and the agent's clone under `~/.dev-process/…`, which is
+  otherwise denied) in a clean environment with the keychain token: `npm test` and `git status` work; an allowed script
+  that runs `security find-generic-password -s dev-process-agent-claude -w` gets "item could not be found" (no keychain
+  from the sandbox), `gh auth token` cannot read `~/.config/gh`, `cat ~/.config/gh/hosts.yml` and another file under
+  `~/.dev-process` are "Operation not permitted"; neither token appears anywhere in the output.
+- Before committing, the runner also scans the changes for the two known token values and refuses.
+- Not run yet: the runner's `main()` end to end against a real repository (clone, worktree, pull request, launchd job);
+  the cost of a real engineering task.
 
 Pitfall seen while setting up: a person pasted the `security` command itself at the password prompt. Storing with
 `-w "$(pbpaste)"` after copying the token avoids it; the setup skill checks the stored value starts with `sk-ant-oat`
