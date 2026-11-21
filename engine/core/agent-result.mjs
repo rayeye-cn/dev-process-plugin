@@ -85,6 +85,16 @@ export function parseAgentResult(raw) {
   };
 }
 
+/** What the run was refused (`permission_denials` of the CLI's JSON output): commands or file paths. */
+export function deniedActions(raw) {
+  try {
+    const o = JSON.parse(String(raw ?? "").trim());
+    return (o.permission_denials ?? []).map((d) => String(d.tool_input?.command ?? d.tool_input?.file_path ?? d.tool_name ?? "").slice(0, 200)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * The prompt: the role's instructions, the ground rules, the task context, then the issue as material in fenced blocks
  * (its text is data, never instructions).

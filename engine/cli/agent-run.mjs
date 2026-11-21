@@ -13,13 +13,13 @@
  * Claude (no GitHub credential, see claudeArgs) → checks → commit / push / pull request / hand-off → cleanup.
  * mode "comment": the agent's result is only posted as a comment and the issue stops for a person (nothing is pushed).
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { renderReport, reportsDue, summarize } from "../core/agent-report.mjs";
-import { AGENT_RESULT_SCHEMA, buildAgentPrompt, parseAgentResult } from "../core/agent-result.mjs";
+import { parseMarker, renderReport, reportsDue, summarize } from "../core/agent-report.mjs";
+import { AGENT_RESULT_SCHEMA, buildAgentPrompt, deniedActions, parseAgentResult } from "../core/agent-result.mjs";
 import { t } from "../core/messages/index.mjs";
 import { assignable, assignmentsFor, checkPaths, checkTransition, labelsFor, ownerFor, rolesOf, safeText, selectTask, TEAM_FILE, triageRole, validateTeam } from "../core/team.mjs";
 import * as gh from "../forge/github-agent.mjs";
@@ -141,10 +141,15 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
   await ops.comment(issue.number, say("agent.comment.claimed", { role, run }) + `\n\n${marker({ run, kind: "claimed", role })}`);
 
   let prepared = null;
+  let denied = [];
   try {
     // An earlier run of this role on this issue left a draft PR (it stopped for a person): continue on its branch.
     const existing = ops.agentPullForIssue ? await ops.agentPullForIssue(login, issue.number, role) : null;
-    prepared = await work.prepare(issue, role, run, existing?.ref ?? null);
+    // The previous role's unmerged work: the branch its hand-off named. This role builds on it (a stacked PR whose base
+    // is that branch; GitHub retargets it when the earlier PR merges and its branch is deleted).
+    const comments = await ops.issueComments(issue.number);
+    const from = existing ? null : priorBranch(team, comments, role);
+    prepared = await work.prepare(issue, role, run, existing?.ref ?? null, from);
     const setup = triage ? { ok: true } : await work.setup(prepared.dir, team.roles[role].setup);
     if (!setup.ok) return await stop(out, "failed", setup.why);
     const r = team.roles[role];
@@ -152,10 +157,13 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
     const prompt = buildAgentPrompt({
       lang,
       instructions,
-      issue: { ...issue, comments: await ops.issueComments(issue.number) },
-      context: { role, triage, next: r.next, paths: r.paths, protectedPaths: team.protectedPaths, roles: Object.keys(team.roles), continued: Boolean(existing) },
+      issue: { ...issue, comments },
+      context: { role, triage, next: r.next, paths: r.paths, protectedPaths: team.protectedPaths, roles: Object.keys(team.roles), continued: Boolean(existing), allow: r.allow, base: prepared.base ?? null },
     });
-    const result = parseAgentResult(await claude(prepared.dir, prompt, role));
+    const raw = await claude(prepared.dir, prompt, role);
+    const result = parseAgentResult(raw);
+    denied = deniedActions(raw);
+    if (denied.length) log(`#${issue.number} denied: ${denied.join(" | ")}`);
     if (!result) return await stop(out, "failed", lang === "zh" ? "没有给出可用的结果" : "no usable result");
     const clean = (s) => safeText(s, { secrets });
     const files = triage ? [] : await work.changedFiles(prepared.dir);
@@ -228,7 +236,7 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
         // The branch is pushed: if opening the PR fails, a PR may still exist (the request reached GitHub) — look it
         // up; otherwise stop and name the branch so a person can open it.
         try {
-          pr = await ops.createPull({ head: prepared.branch, base, title, body, draft: !done });
+          pr = await ops.createPull({ head: prepared.branch, base: prepared.base ?? base, title, body, draft: !done });
         } catch (e) {
           pr = ops.openPullForBranch ? await ops.openPullForBranch(prepared.branch).catch(() => null) : null;
           if (!pr) return await stop(out, "failed", `${String(e.message).slice(0, 120)} (branch \`${prepared.branch}\`)`);
@@ -244,12 +252,12 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
     if (team.roles[next]) {
       await moveTo(ops, team, issue, role, next);
       await assignTo(ops, team, issue, next);
-      const summary = clean(result.summary) + (pr ? `\n\nPR #${pr.number}` : "");
-      await ops.comment(issue.number, say("agent.comment.handoff", { from: role, to: next, summary, handoff: clean(result.handoff) }) + `\n\n${marker({ run, kind: "handoff", from: role, to: next })}`);
+      const summary = clean(result.summary) + (pr ? `\n\nPR #${pr.number}` : "") + deniedNote(denied);
+      await ops.comment(issue.number, say("agent.comment.handoff", { from: role, to: next, summary, handoff: clean(result.handoff) }) + `\n\n${marker({ run, kind: "handoff", from: role, to: next, ...(pr ? { branch: prepared.branch } : {}) })}`);
       out.task.result = `handoff:${next}`;
     } else if (pr) {
       await moveTo(ops, team, issue, role, "review");
-      await ops.comment(issue.number, say("agent.comment.review", { role, ref: `#${pr.number}`, summary: clean(result.summary), handoff: clean(result.handoff) }) + `\n\n${marker({ run, kind: "review", role })}`);
+      await ops.comment(issue.number, say("agent.comment.review", { role, ref: `#${pr.number}`, summary: clean(result.summary) + deniedNote(denied), handoff: clean(result.handoff) }) + `\n\n${marker({ run, kind: "review", role })}`);
       out.task.result = "review";
     } else if (next === "done") {
       await moveTo(ops, team, issue, role, "done");
@@ -271,13 +279,28 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
     await moveTo(ops, team, issue, role, "human");
     const clean = (s) => safeText(s, { secrets });
     const body =
-      kind === "human" ? say("agent.comment.blocked", { role, summary: clean(result?.summary ?? ""), questions: (result?.questions ?? []).map(clean), ready: L.ready, draft: pr ? `#${pr.number}` : "" })
+      kind === "human" ? say("agent.comment.blocked", { role, summary: clean(result?.summary ?? "") + deniedNote(denied), questions: (result?.questions ?? []).map(clean), ready: L.ready, draft: pr ? `#${pr.number}` : "" })
       : kind === "badHandoff" ? say("agent.comment.badHandoff", { role, next: clean(detail ?? "") })
       : say("agent.comment.failed", { role, why: clean(detail ?? ""), ready: L.ready });
     await ops.comment(issue.number, `${body}\n\n${marker({ run, kind, role })}`);
     o.task.result = kind;
     return o;
   }
+}
+
+/** A line naming what the run was refused (so people can adjust the role's allowed commands), or "". */
+function deniedNote(denied) {
+  return denied.length ? `\n\n${safeText(denied.slice(0, 8).map((d) => `\`${d.replaceAll("`", "'")}\``).join(" "))} ←  denied` : "";
+}
+
+/** The branch the latest hand-off TO `role` named (a participant's runner comment), or null. */
+export function priorBranch(team, comments, role) {
+  for (const c of [...comments].reverse()) {
+    if (!team.people.some((p) => p.login.toLowerCase() === String(c.login).toLowerCase())) continue;
+    const m = parseMarker(c.body);
+    if (m?.kind === "handoff" && m.to === role) return m.branch && /^agent\/[a-z0-9-]+\/\d+-[A-Za-z0-9-]+$/.test(m.branch) ? m.branch : null;
+  }
+  return null;
 }
 
 /** Runner text is ours, but it embeds model text: keep it from becoming a command line or a hidden marker. */
@@ -300,6 +323,31 @@ async function assignTo(ops, team, issue, role) {
 }
 
 /* ───────────── real I/O (the machine) ───────────── */
+
+/**
+ * A child process without blocking the event loop (spawnSync would: the HTTP client could then not notice GitHub closing
+ * idle keep-alive connections during a long Claude run, and the next request fails with "fetch failed").
+ */
+export function runAsync(cmd, args, { cwd, input = null, env, timeoutMs }) {
+  return new Promise((resolveRun) => {
+    const child = spawn(cmd, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const out = [];
+    const err = [];
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      child.kill("SIGTERM");
+    }, timeoutMs);
+    child.stdout.on("data", (d) => out.push(d));
+    child.stderr.on("data", (d) => err.push(d));
+    child.on("error", (e) => err.push(Buffer.from(String(e.message))));
+    child.on("close", (status, signal) => {
+      clearTimeout(timer);
+      resolveRun({ status, signal: killed ? "timeout" : signal, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") });
+    });
+    child.stdin.end(input ?? "");
+  });
+}
 
 /** `git status --porcelain=v1 -z --no-renames` output → paths. */
 export function parsePorcelainZ(out) {
@@ -344,21 +392,32 @@ function machineWork({ repo, base, home }) {
     clone,
     readDefault: async (path) => git("show", `origin/${base}:${path}`),
     // A new branch from the default branch, or (continuing a draft PR) the existing agent branch.
-    prepare: async (issue, role, run, branch = null) => {
+    prepare: async (issue, role, run, branch = null, from = null) => {
       const dir = join(home, "work", `${repo.replace("/", "__")}-${issue.number}-${run}`);
       mkdirSync(join(home, "work"), { recursive: true });
-      if (branch) {
-        git("fetch", "--quiet", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+      const fetched = (b) => {
+        try {
+          git("fetch", "--quiet", "origin", `+refs/heads/${b}:refs/remotes/origin/${b}`);
+          return true;
+        } catch {
+          return false; // merged and deleted, or never pushed
+        }
+      };
+      if (branch && fetched(branch)) {
         git("worktree", "add", "--quiet", "-B", branch, dir, `origin/${branch}`);
-        return { dir, branch };
+        return { dir, branch, base: null };
       }
       const fresh = `agent/${role}/${issue.number}-${run}`;
+      if (from && fetched(from)) {
+        git("worktree", "add", "--quiet", "-b", fresh, dir, `origin/${from}`);
+        return { dir, branch: fresh, base: from };
+      }
       git("worktree", "add", "--quiet", "-b", fresh, dir, `origin/${base}`);
-      return { dir, branch: fresh };
+      return { dir, branch: fresh, base: null };
     },
     setup: async (dir, commands) => {
       for (const c of commands) {
-        const r = spawnSync("/bin/sh", ["-c", c], { cwd: dir, encoding: "utf8", timeout: 30 * 60_000 });
+        const r = await runAsync("/bin/sh", ["-c", c], { cwd: dir, env: process.env, timeoutMs: 30 * 60_000 });
         if (r.status !== 0) return { ok: false, why: `setup \`${c}\` → ${r.status ?? r.signal}` };
       }
       return { ok: true };
@@ -397,12 +456,10 @@ function machineClaude({ team, claudeBin, token, home, clone }) {
   const cfg = join(home, "claude-config");
   mkdirSync(cfg, { recursive: true });
   return async (dir, prompt, role) => {
-    const r = spawnSync(claudeBin, claudeArgs(team, role, { allowRead: [dir, clone] }), {
+    const r = await runAsync(claudeBin, claudeArgs(team, role, { allowRead: [dir, clone] }), {
       cwd: dir,
       input: prompt,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: 90 * 60_000,
+      timeoutMs: 90 * 60_000,
       // A clean environment: no GitHub token, no API key (it would win over the OAuth token), the agent's own config dir.
       env: { HOME: homedir(), USER: process.env.USER ?? "", PATH: process.env.PATH ?? "/usr/bin:/bin", LANG: "en_US.UTF-8", CLAUDE_CONFIG_DIR: cfg, CLAUDE_CODE_OAUTH_TOKEN: token },
     });

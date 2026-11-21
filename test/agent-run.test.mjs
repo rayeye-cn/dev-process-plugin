@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claudeArgs, parsePorcelainZ, runRepo } from "../engine/cli/agent-run.mjs";
+import { claudeArgs, parsePorcelainZ, priorBranch, runRepo } from "../engine/cli/agent-run.mjs";
+import { deniedActions } from "../engine/core/agent-result.mjs";
 import { validateTeam } from "../engine/core/team.mjs";
 
 const team = validateTeam({
@@ -79,9 +80,9 @@ function fakeWork({ files = [], setupOk = true } = {}) {
   return {
     calls,
     readDefault: async (p) => `# instructions for ${p}`,
-    prepare: async (issue, role, run, branch = null) => {
-      calls.push(["prepare", issue.number, role, branch]);
-      return { dir: `/w/${issue.number}`, branch: branch ?? `agent/${role}/${issue.number}-${run}` };
+    prepare: async (issue, role, run, branch = null, from = null) => {
+      calls.push(["prepare", issue.number, role, branch, from]);
+      return { dir: `/w/${issue.number}`, branch: branch ?? `agent/${role}/${issue.number}-${run}`, base: branch ? null : from };
     },
     setup: async (dir, cmds) => (calls.push(["setup", cmds]), setupOk ? { ok: true } : { ok: false, why: "npm ci → 1" }),
     changedFiles: async () => files,
@@ -316,10 +317,44 @@ test("the next run continues the draft PR on its branch, updates it and marks it
   let prompt = "";
   const r = await go({ login: "lead-a", ops, work, claude: async (dir, p) => ((prompt = p), JSON.stringify({ structured_output: { status: "done", summary: "final", next: "ui", pr: { title: "docs: discount PRD", body: "b" } } })) });
   assert.equal(r.task.result, "handoff:ui");
-  assert.deepEqual(work.calls.find((c) => c[0] === "prepare"), ["prepare", 65, "product", "agent/product/65-R0"]);
+  assert.deepEqual(work.calls.find((c) => c[0] === "prepare"), ["prepare", 65, "product", "agent/product/65-R0", null]);
   assert.match(work.calls.find((c) => c[0] === "commitAndPush")[1], /^agent\/product\/65-R0$/);
   assert.ok(!ops.writes.some((w) => w[0] === "createPull"), "no second PR");
   assert.equal(calls[0][0], "updatePull");
   assert.deepEqual(calls[1], ["markReady", "PR_N"]);
   assert.match(prompt, /continuing earlier work/);
+});
+
+test("a hand-off with a PR names its branch; the next role builds on it and targets it (stacked PR)", async () => {
+  const ops = fakeOps({ issues: [issue({ number: 70, labels: ["role:product", "agent:ready"], assignees: ["lead-a"] })] });
+  await go({ login: "lead-a", ops, work: fakeWork({ files: [".prd/70.md"] }), claude: answer({ status: "done", summary: "prd", next: "dev", pr: { title: "prd", body: "b" } }) });
+  const handoff = ops.comments[70].at(-1).body;
+  assert.match(handoff, /kind=handoff from=product to=dev branch=agent\/product\/70-R1/);
+  // the dev machine (comments now come from lead-a's runner)
+  ops.comments[70] = ops.comments[70].map((c) => ({ ...c, login: "lead-a" }));
+  const work = fakeWork({ files: ["src/a.ts"] });
+  let prompt = "";
+  await go({ login: "dev-b", run: "R2", ops, work, claude: async (d, p) => ((prompt = p), JSON.stringify({ structured_output: { status: "done", summary: "code", next: "done", pr: { title: "feat", body: "b" } } })) });
+  assert.deepEqual(work.calls.find((c) => c[0] === "prepare"), ["prepare", 70, "dev", null, "agent/product/70-R1"]);
+  assert.equal(ops.writes.filter((w) => w[0] === "createPull").at(-1)[2].base, "agent/product/70-R1");
+  assert.match(prompt, /previous role's branch `agent\/product\/70-R1`/);
+  assert.match(prompt, /`Bash\(npm test \*\)`/);
+});
+
+test("priorBranch: only a participant's hand-off to this role, only an agent branch name", () => {
+  const c = (login, body) => ({ login, body });
+  const m = (f) => `x <!-- dev-process:agent ${Object.entries(f).map(([k, v]) => `${k}=${v}`).join(" ")} -->`;
+  const t = { people: [{ login: "lead-a" }] };
+  assert.equal(priorBranch(t, [c("lead-a", m({ kind: "handoff", from: "product", to: "dev", branch: "agent/product/7-R1" }))], "dev"), "agent/product/7-R1");
+  assert.equal(priorBranch(t, [c("outsider", m({ kind: "handoff", from: "product", to: "dev", branch: "agent/product/7-R1" }))], "dev"), null);
+  assert.equal(priorBranch(t, [c("lead-a", m({ kind: "handoff", from: "product", to: "dev", branch: "main" }))], "dev"), null);
+  assert.equal(priorBranch(t, [c("lead-a", m({ kind: "handoff", from: "product", to: "ui", branch: "agent/product/7-R1" }))], "dev"), null);
+});
+
+test("deniedActions lists refused commands; they are named in the issue comment", async () => {
+  const raw = JSON.stringify({ structured_output: { status: "done", summary: "s", next: "done" }, permission_denials: [{ tool_name: "Bash", tool_input: { command: "cd x && npm test" } }] });
+  assert.deepEqual(deniedActions(raw), ["cd x && npm test"]);
+  const ops = fakeOps({ issues: [issue({ number: 71, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
+  await go({ login: "dev-b", ops, work: fakeWork({ files: ["src/a.ts"] }), claude: async () => raw });
+  assert.match(ops.comments[71].at(-1).body, /cd x && npm test/);
 });
