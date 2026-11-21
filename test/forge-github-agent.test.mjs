@@ -90,7 +90,7 @@ test("createPull and agentPulls (only my agent/ branches from this repository)",
   assert.deepEqual(await gh.createPull(forge, { head: "agent/dev/7-R1", base: "main", title: "t", body: "b" }), { number: 9, url: "https://github.com/o/r/pull/9" });
   assert.equal(fetch.calls[0].body.head, "agent/dev/7-R1");
   assert.deepEqual(await gh.agentPulls(forge, "DEV-B"), [{ number: 9, labels: ["risk:low"], headSha: "abc", ref: "agent/dev/7-R1", body: "x", draft: false, nodeId: undefined, url: undefined }]);
-  assert.equal((await gh.agentPullForIssue(forge, "dev-b", 7, "dev")).number, 9);
+  assert.equal(await gh.agentPullForIssue(forge, "dev-b", 7, "dev"), null, "only a draft is continued");
   assert.equal(await gh.agentPullForIssue(forge, "dev-b", 7, "ui"), null);
 });
 
@@ -130,4 +130,19 @@ test("a POST whose connection was never made is retried", async () => {
   const forge = createGithub({ repo: "o/r", env: { GH_TOKEN: "t" }, fetch, retryDelayMs: 1 });
   assert.equal(await gh.createIssue(forge, { title: "t", body: "b" }), 5);
   assert.equal(posts, 2);
+});
+
+test("pullsForIssue: this repository's agent PRs of that issue, any role and state", async () => {
+  const { forge } = forgeWith({
+    "GET /repos/o/r/pulls?state=all&sort=updated&direction=desc&per_page=100": [
+      { number: 9, state: "closed", merged_at: "2026-11-21T00:00:00Z", head: { ref: "agent/product/8-R1", repo: { full_name: "o/r" } } },
+      { number: 10, state: "open", merged_at: null, head: { ref: "agent/dev/8-R2", repo: { full_name: "o/r" } } },
+      { number: 11, state: "open", head: { ref: "agent/dev/80-R2", repo: { full_name: "o/r" } } },
+      { number: 12, state: "open", head: { ref: "feature/8-x", repo: { full_name: "o/r" } } },
+    ],
+  });
+  assert.deepEqual(await gh.pullsForIssue(forge, 8), [
+    { number: 9, state: "closed", merged: true, ref: "agent/product/8-R1" },
+    { number: 10, state: "open", merged: false, ref: "agent/dev/8-R2" },
+  ]);
 });

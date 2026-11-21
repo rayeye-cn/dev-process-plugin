@@ -87,7 +87,15 @@ export async function agentPulls(forge, login, prefix = "agent/") {
 
 /** My open agent PR for this issue and role (an earlier run's draft), or null. */
 export async function agentPullForIssue(forge, login, number, role) {
-  return (await agentPulls(forge, login)).find((p) => p.ref.startsWith(`agent/${role}/${number}-`)) ?? null;
+  return (await agentPulls(forge, login)).find((p) => p.draft && p.ref.startsWith(`agent/${role}/${number}-`)) ?? null;
+}
+
+/** Agent PRs of an issue (any role, any state; the 100 most recently updated PRs): `[{ number, state, merged, ref }]`. */
+export async function pullsForIssue(forge, number) {
+  const page = (await forge.rest.get(`${repoPath(forge)}/pulls?state=all&sort=updated&direction=desc&per_page=100`)) ?? [];
+  return page
+    .filter((p) => /^agent\/[a-z0-9-]+\/(\d+)-/.exec(p.head?.ref ?? "")?.[1] === String(number) && p.head?.repo?.full_name === forge.repo)
+    .map((p) => ({ number: p.number, state: p.state, merged: Boolean(p.merged_at), ref: p.head.ref }));
 }
 
 export async function updatePull(forge, number, { title, body }) {

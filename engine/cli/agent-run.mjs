@@ -113,6 +113,20 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
     out.stale.push(i.number);
   }
 
+  // 2b. Issues waiting for their agent PRs (assigned to me): all merged, none open ⇒ close (stacked PRs never close them).
+  if (ops.pullsForIssue) {
+    for (const i of await ops.issuesWithLabel(L.review)) {
+      if (!i.assignees.some((a) => a.toLowerCase() === login.toLowerCase())) continue;
+      const prs = await ops.pullsForIssue(i.number);
+      if (!prs.length || prs.some((p) => p.state === "open") || !prs.some((p) => p.merged)) continue;
+      const role = mine.find((r) => i.labels.includes(`${L.rolePrefix}${r}`)) ?? mine[0];
+      await moveTo(ops, team, i, role, "done");
+      await ops.comment(i.number, say("agent.comment.merged", { prs: prs.filter((p) => p.merged).map((p) => `#${p.number}`) }) + `\n\n${marker({ run, kind: "closed" })}`);
+      await ops.closeIssue(i.number);
+      out.closed = [...(out.closed ?? []), i.number];
+    }
+  }
+
   // 3. The agent's open pull requests: queue a low one once per head, remind the author on medium / high once per head.
   for (const p of await ops.agentPulls(login)) {
     const tier = p.labels.find((l) => l.startsWith(L.riskPrefix))?.slice(L.riskPrefix.length);
@@ -217,7 +231,8 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
       }
       await work.commitAndPush(prepared.dir, prepared.branch, `${title}\n\nAgent-Run: ${run}\nAgent-Role: ${role}\nRefs: #${issue.number}`);
       const body = [
-        `${done && !team.roles[next] ? "Closes" : "Refs"} #${issue.number}`,
+        // A stacked PR (base = another agent branch) cannot close the issue on merge: Refs; housekeeping closes it.
+        `${done && !team.roles[next] && !prepared.base ? "Closes" : "Refs"} #${issue.number}`,
         "",
         clean(result.pr?.body || result.summary),
         "",
@@ -259,6 +274,12 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
       await moveTo(ops, team, issue, role, "review");
       await ops.comment(issue.number, say("agent.comment.review", { role, ref: `#${pr.number}`, summary: clean(result.summary) + deniedNote(denied), handoff: clean(result.handoff) }) + `\n\n${marker({ run, kind: "review", role })}`);
       out.task.result = "review";
+    } else if (next === "done" && ops.pullsForIssue && (await ops.pullsForIssue(issue.number)).some((p) => p.state === "open")) {
+      // Finished, but earlier roles' PRs are still open: wait for them (housekeeping closes the issue once all merge).
+      const open = (await ops.pullsForIssue(issue.number)).filter((p) => p.state === "open").map((p) => `#${p.number}`).join(" ");
+      await moveTo(ops, team, issue, role, "review");
+      await ops.comment(issue.number, say("agent.comment.review", { role, ref: open, summary: clean(result.summary) + deniedNote(denied), handoff: clean(result.handoff) }) + `\n\n${marker({ run, kind: "review", role })}`);
+      out.task.result = "review";
     } else if (next === "done") {
       await moveTo(ops, team, issue, role, "done");
       await ops.comment(issue.number, say("agent.comment.done", { role, summary: clean(result.summary) }) + `\n\n${marker({ run, kind: "done", role })}`);
@@ -290,7 +311,11 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
 
 /** A line naming what the run was refused (so people can adjust the role's allowed commands), or "". */
 function deniedNote(denied) {
-  return denied.length ? `\n\n${safeText(denied.slice(0, 8).map((d) => `\`${d.replaceAll("`", "'")}\``).join(" "))} ←  denied` : "";
+  const short = (d) => {
+    const first = d.split("\n")[0];
+    return (first.length > 100 ? `${first.slice(0, 100)}…` : first + (d.includes("\n") ? " …" : "")).replaceAll("`", "'");
+  };
+  return denied.length ? `\n\n${safeText(denied.slice(0, 8).map((d) => `\`${short(d)}\``).join(" "))} ← denied` : "";
 }
 
 /** The branch the latest hand-off TO `role` named (a participant's runner comment), or null. */
@@ -373,6 +398,7 @@ function boundOps(forge) {
     dropReviewers: b(gh.dropReviewers),
     openPullForBranch: b(gh.openPullForBranch),
     agentPullForIssue: b(gh.agentPullForIssue),
+    pullsForIssue: b(gh.pullsForIssue),
     updatePull: b(gh.updatePull),
     markReady: b(gh.markReady),
     closeIssue: (n) => forge.rest.patch(`/repos/${forge.owner}/${forge.name}/issues/${n}`, { state: "closed", state_reason: "completed" }),

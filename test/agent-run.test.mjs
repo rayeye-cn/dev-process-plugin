@@ -358,3 +358,25 @@ test("deniedActions lists refused commands; they are named in the issue comment"
   await go({ login: "dev-b", ops, work: fakeWork({ files: ["src/a.ts"] }), claude: async () => raw });
   assert.match(ops.comments[71].at(-1).body, /cd x && npm test/);
 });
+
+test("finished with no change while earlier PRs are open: waits in review; closed once they all merge", async () => {
+  const ops = fakeOps({ issues: [issue({ number: 90, labels: ["role:product", "agent:ready"], assignees: ["lead-a"] })] });
+  let prs = [{ number: 91, state: "open", merged: false, ref: "agent/dev/90-R1" }];
+  ops.pullsForIssue = async () => prs;
+  const r = await go({ login: "lead-a", ops, work: fakeWork(), claude: answer({ status: "done", summary: "accepted", next: "done" }) });
+  assert.equal(r.task.result, "review");
+  assert.ok(!ops.writes.some((w) => w[0] === "closeIssue"));
+  prs = [{ number: 91, state: "closed", merged: true, ref: "agent/dev/90-R1" }];
+  const r2 = await go({ login: "lead-a", ops, work: fakeWork(), claude: answer({}) });
+  assert.deepEqual(r2.closed, [90]);
+  assert.ok(ops.writes.some((w) => w[0] === "closeIssue" && w[1] === 90));
+});
+
+test("a stacked PR says Refs even at the end of the chain", async () => {
+  const ops = fakeOps({ issues: [issue({ number: 92, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
+  ops.comments[92] = [{ login: "lead-a", body: "x <!-- dev-process:agent run=R0 kind=handoff from=product to=dev branch=agent/product/92-R0 -->" }];
+  await go({ login: "dev-b", ops, work: fakeWork({ files: ["src/a.ts"] }), claude: answer({ status: "done", summary: "s", next: "done", pr: { title: "t", body: "b" } }) });
+  const pr = ops.writes.find((w) => w[0] === "createPull")[2];
+  assert.equal(pr.base, "agent/product/92-R0");
+  assert.match(pr.body, /^Refs #92/);
+});

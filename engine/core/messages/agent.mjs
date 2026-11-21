@@ -39,6 +39,7 @@ const zh = {
   "agent.comment.claimed": (p) => `「${p.role}」代理开始处理（运行 \`${p.run}\`）。`,
   "agent.comment.handoff": (p) => [`「${p.from}」代理已完成，交给「${p.to}」。`, "", p.summary, ...(p.handoff ? ["", "**交接说明**", "", p.handoff] : [])].join("\n"),
   "agent.comment.done": (p) => [`「${p.role}」代理已完成。`, "", p.summary].join("\n"),
+  "agent.comment.merged": (p) => `相关的代理 PR 都已合入（${Array.isArray(p.prs) ? p.prs.join(" ") : ""}），关闭这个 issue。`,
   "agent.comment.review": (p) => [`「${p.role}」代理已开 PR ${p.ref}，合入后这个 issue 会关闭。`, "", p.summary, ...(p.handoff ? ["", "**交接说明**", "", p.handoff] : [])].join("\n"),
   "agent.comment.blocked": (p) =>
     [`「${p.role}」代理需要人来决定，已停下。`, "", p.summary, ...(p.draft && typeof p.draft === "string" ? ["", `目前的进度在草稿 PR ${p.draft} 里；回答后代理会在同一个 PR 上接着做。`] : []), ...(Array.isArray(p.questions) && p.questions.length ? ["", "**要决定的事**", "", ...p.questions.map((q) => `- ${q}`)] : []), "", `处理完后，重新打上 \`${p.ready}\` 标签，代理会接着做。`].join("\n"),
@@ -100,6 +101,7 @@ const en = {
   "agent.comment.claimed": (p) => `The "${p.role}" agent started on this (run \`${p.run}\`).`,
   "agent.comment.handoff": (p) => [`The "${p.from}" agent finished and handed this to "${p.to}".`, "", p.summary, ...(p.handoff ? ["", "**Hand-off notes**", "", p.handoff] : [])].join("\n"),
   "agent.comment.done": (p) => [`The "${p.role}" agent finished.`, "", p.summary].join("\n"),
+  "agent.comment.merged": (p) => `All agent PRs of this issue are merged (${Array.isArray(p.prs) ? p.prs.join(" ") : ""}); closing it.`,
   "agent.comment.review": (p) => [`The "${p.role}" agent opened ${p.ref}; this issue closes when it merges.`, "", p.summary, ...(p.handoff ? ["", "**Hand-off notes**", "", p.handoff] : [])].join("\n"),
   "agent.comment.blocked": (p) =>
     [`The "${p.role}" agent needs a person to decide and stopped.`, "", p.summary, ...(p.draft && typeof p.draft === "string" ? ["", `The work so far is in draft ${p.draft}; after your answer the agent continues on the same PR.`] : []), ...(Array.isArray(p.questions) && p.questions.length ? ["", "**To decide**", "", ...p.questions.map((q) => `- ${q}`)] : []), "", `When done, add the \`${p.ready}\` label again and the agent carries on.`].join("\n"),
