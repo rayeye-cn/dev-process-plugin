@@ -23,8 +23,9 @@ stays the human gate. Design and the safety checks run on a Mac: `docs/design/ag
 - The project lead's machine posts a daily and a weekly report to a fixed issue.
 - `apply-protection` (GitHub) creates the role and status labels when the team file exists.
 
-Not yet: a full run against a real repository (only the pieces were run), Windows, GitLab, the marketing role
-across repositories, a measured cost per engineering task.
+Run end to end on a private throwaway repository (chains across all roles, stacked PRs, a stop for a person and the
+continuation, launchd); details in the design doc. Not yet: a large repository's engineering task (setup and cost),
+Windows, GitLab, the marketing role across repositories.
 
 ## 1.0.0 (2026-11-20)
 

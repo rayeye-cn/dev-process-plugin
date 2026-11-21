@@ -68,8 +68,30 @@ Run, not read:
   from the sandbox), `gh auth token` cannot read `~/.config/gh`, `cat ~/.config/gh/hosts.yml` and another file under
   `~/.dev-process` are "Operation not permitted"; neither token appears anywhere in the output.
 - Before committing, the runner also scans the changes for the two known token values and refuses.
-- Not run yet: the runner's `main()` end to end against a real repository (clone, worktree, pull request, launchd job);
-  the cost of a real engineering task.
+
+## End-to-end run (private throwaway repository `agent-sandbox`, 2026-11-21)
+
+One person holding every role, full mode, real Claude runs (each pass 45–90 s on a tiny Node project):
+- A role-less issue: triage → product (stopped with five questions; after the answers in the issue and `agent:ready`
+  again, it wrote the requirement) → UI spec → engineering (code + tests, `npm test` run inside the sandbox) → PR.
+- A second chain: triage → product (PR) → engineering, stacked on the product branch (PR base = that branch) → product
+  acceptance on the engineering branch. After both PRs merged, the runner closed the issue itself.
+- A direct engineering issue → PR with `Closes`, the repository's PR template appended, commit trailers, worktree
+  removed afterwards.
+- `agent-install install` → LaunchAgent → `run-now`: the copied engine ran the same flow from launchd.
+
+Found and fixed during the run:
+- Two "fetch failed" on opening a PR: the Claude call blocked the event loop (spawnSync) for minutes, so the HTTP client
+  reused a keep-alive connection GitHub had closed. Child processes are async now; GitHub requests retry on network
+  failures (POST only when no connection was made); a failed PR creation looks for an existing PR and names the branch.
+- Work done before stopping for a person was lost: it now goes to a draft PR that the next run continues.
+- Later roles could not see earlier roles' unmerged files: hand-offs name the branch and the next role stacks on it.
+- `npm test` refused when the model added `cd` or a pipe: the prompt lists the allowed commands verbatim; refused
+  actions are logged and named in the issue comment.
+- A role coming back (acceptance) resumed its own finished PR: only draft PRs are continued.
+- The issue was closed while stacked PRs were still open: it now waits in `agent:review` until all its agent PRs merge.
+
+Not run yet: a real engineering task on a large repository (setup cost, test time, Claude cost), Windows, GitLab.
 
 Pitfall seen while setting up: a person pasted the `security` command itself at the password prompt. Storing with
 `-w "$(pbpaste)"` after copying the token avoids it; the setup skill checks the stored value starts with `sk-ant-oat`
