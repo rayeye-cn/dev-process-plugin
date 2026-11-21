@@ -40,6 +40,13 @@ claude plugin install dev-process@dev-process-plugin
 
 想固定在某个版本：添加插件市场时带上 tag，写成 `rayeye-cn/dev-process-plugin#dev-process--v1.0.0`。
 
+## 或者从 claude.ai 组织插件库安装
+
+插件也发布到了 claude.ai 上本组织的插件库，不需要 GitHub 权限：打开
+https://claude.ai/customize/plugins/plugin_012CDAoWGQnLYRdBvw3MWzrs 添加；或者在 Claude Code 里 `/plugin` → Marketplaces
+添加组织插件库，再运行 `/plugin install dev-process@claudeai-organization-library`。插件库里的版本是每次发版时手动发布的，
+可能比 GitHub 上的晚。
+
 ## 更新
 
 这个插件市场的自动更新**默认关闭**。可以打开它（`/plugin` → Marketplaces → `dev-process-plugin` → auto-update；
@@ -90,6 +97,8 @@ claude plugin install dev-process@dev-process-plugin --scope project
 1. 改 `.claude-plugin/plugin.json` 里的 `version`，不要在 `marketplace.json` 的条目里另写版本；在 `CHANGELOG.md` 里加一条。
 2. 运行 `npm test` 和 `npm run validate`，然后提交、推送，等插件自己的 CI 通过。
 3. 运行 `claude plugin tag --push`，创建并推送 `dev-process--v<版本号>`。
+4. 把同一版本发布到组织插件库：用 `git archive` 把打了 tag 的文件导出到一个空目录，删掉其中的
+   `.claude-plugin/marketplace.json`（发布工具不接受同时是插件市场的目录），再让 Claude Code 把这个目录发布到组织插件库。
 
 ## 排错
 

@@ -42,6 +42,13 @@ Start a new session (or run `/reload-plugins`). Then, in the repository to set u
 
 To stay on one release, add the marketplace at its tag: `rayeye-cn/dev-process-plugin#dev-process--v1.0.0`.
 
+## Or from the claude.ai organization library
+
+The plugin is also in the organization's plugin library on claude.ai (no GitHub access needed): open
+https://claude.ai/customize/plugins/plugin_012CDAoWGQnLYRdBvw3MWzrs to add it, or in Claude Code add the organization
+library under `/plugin` → Marketplaces and run `/plugin install dev-process@claudeai-organization-library`. The library
+copy is published by hand for each release, so it can lag behind GitHub.
+
 ## Updates
 
 Auto-update is **off** for this marketplace by default. Either turn it on (`/plugin` → Marketplaces →
@@ -91,6 +98,9 @@ sign-off and one more approval.
    and add a `CHANGELOG.md` entry.
 2. `npm test` and `npm run validate`; commit, push, wait for the plugin's CI.
 3. `claude plugin tag --push` (creates and pushes `dev-process--v<version>`).
+4. Publish the same version to the organization library: export the tagged files (`git archive`) to an empty folder,
+   delete `.claude-plugin/marketplace.json` there (the publish tool refuses a folder that is also a marketplace), and
+   ask Claude Code to publish that folder to the organization library.
 
 ## Troubleshooting
 
