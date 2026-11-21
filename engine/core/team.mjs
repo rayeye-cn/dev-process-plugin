@@ -212,6 +212,17 @@ export function labelsFor(team, issueLabels, { from, to }) {
   };
 }
 
+/** The labels the agents use (apply-protection creates them): one per role, one per status. */
+export function agentLabels(team) {
+  return [
+    ...Object.keys(team.roles).map((r) => ({ name: roleLabel(team, r), color: "1d76db" })),
+    { name: team.labels.ready, color: "0e8a16" },
+    { name: team.labels.working, color: "fbca04" },
+    { name: team.labels.review, color: "5319e7" },
+    { name: team.labels.blocked, color: "b60205" },
+  ];
+}
+
 /** Who an issue may be assigned to: participants only, never anyone in neverNotify. */
 export function assignable(team, login) {
   return isParticipant(team, login) && !team.neverNotify.some((x) => x.toLowerCase() === String(login).toLowerCase());

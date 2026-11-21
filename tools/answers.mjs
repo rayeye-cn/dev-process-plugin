@@ -26,11 +26,13 @@
  *   },
  *   queue: { mode: "self" | "native" | "train" },   // native: GitHub; train: GitLab merge trains (Premium)
  *   classifier: true, loops: { sweep, eval, metrics },
+ *   team?: the role agents' team file (engine/core/team.mjs), written to .dev-process/team.json,
  *   release: { label, versionFiles: [{ file, field }] },
  *   stagedRollout: false
  * }
  * A step is `{ name?, run }` or `{ name?, uses, with? }` (GitLab: `run` only — job scripts are shell commands).
  */
+import { validateTeam } from "../engine/core/team.mjs";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9-]*(\/[A-Za-z0-9._-]+)?$/; // login, or org/team
 /** GitLab usernames may hold `.` and `_`; groups nest (`@group/sub`). */
@@ -147,6 +149,17 @@ export function validateAnswers(raw) {
     return { file: v.file, field: v.field };
   });
 
+  // Role agents (optional): the team file, validated here so a bad one fails at render, written as given (plus language).
+  let team = null;
+  if (a.team !== undefined && a.team !== null) {
+    try {
+      validateTeam({ ...a.team, language });
+    } catch (e) {
+      fail("team", e.message.replace(/^team\.?/, ""));
+    }
+    team = { ...a.team, language };
+  }
+
   return {
     version: 1,
     forge,
@@ -166,5 +179,6 @@ export function validateAnswers(raw) {
     loops,
     release: { label: isStr(release.label) ? release.label : "release", versionFiles },
     stagedRollout: Boolean(a.stagedRollout),
+    ...(team ? { team } : {}),
   };
 }

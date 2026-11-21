@@ -93,6 +93,15 @@ export function manifest(ctx, answers) {
     { out: ".gitlab-ci.yml", kind: "file", tmpl: tmpl("gitlab/gitlab-ci.yml.tmpl"), when: gitlab },
     { out: ".gitlab/dev-process.gitlab-ci.yml", kind: "file", tmpl: tmpl("gitlab/dev-process.gitlab-ci.yml.tmpl"), when: gitlab },
   ];
+  // Role agents: the team file (from the answers) and each role's instructions, seeded once (the team edits them).
+  if (answers.team) {
+    outs.push({ out: ".dev-process/team.json", kind: "text", text: () => json(answers.team) });
+    for (const [name, role] of Object.entries(answers.team.roles ?? {})) {
+      const file = existsSync(tmpl(`common/{lang}/agents/${name}.md.tmpl`)) ? `common/{lang}/agents/${name}.md.tmpl` : "common/{lang}/agents/role.md.tmpl";
+      const roleCtx = { ...ctx, role: { name, paths: role.paths ?? [], next: role.next ?? [] } };
+      outs.push({ out: role.instructions, kind: "seed", text: () => renderTemplate(readFileSync(tmpl(file), "utf8"), roleCtx, file) });
+    }
+  }
   for (const f of engineFiles()) {
     const rel = relative(ENGINE, f).split(sep).join("/");
     outs.push({ out: `.dev-process/engine/${rel}`, kind: "text", text: () => readFileSync(f, "utf8") });

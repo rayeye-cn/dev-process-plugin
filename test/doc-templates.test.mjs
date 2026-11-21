@@ -64,10 +64,23 @@ const VARIANTS = {
 
 describe("doc templates: files", () => {
   it("both languages have exactly the same template files", () => {
-    const zh = readdirSync(new URL("zh/", DIR)).sort();
-    const en = readdirSync(new URL("en/", DIR)).sort();
+    const zh = readdirSync(new URL("zh/", DIR)).filter((f) => f !== "agents").sort();
+    const en = readdirSync(new URL("en/", DIR)).filter((f) => f !== "agents").sort();
     assert.deepEqual(zh, en);
     assert.deepEqual(zh, [...FILES].sort());
+  });
+
+  it("role agent instructions: the same roles in both languages, a generic one, no leftovers", () => {
+    const zh = readdirSync(new URL("zh/agents/", DIR)).sort();
+    assert.deepEqual(zh, readdirSync(new URL("en/agents/", DIR)).sort());
+    assert.ok(zh.includes("role.md.tmpl"));
+    for (const lang of ["zh", "en"]) {
+      for (const f of zh) {
+        const s = readFileSync(new URL(`${lang}/agents/${f}`, DIR), "utf8");
+        assert.doesNotMatch(s, /pandaluvcc|fengziadmin|xuzhouqqq|hppbmw|rayeye|x-bidding|Electron|PyMuPDF/i, `${lang}/agents/${f}`);
+        assert.match(s, /needs_human/, `${lang}/agents/${f}: says when to stop for a person`);
+      }
+    }
   });
 
   it("no project-specific leftovers from the reference implementation", () => {

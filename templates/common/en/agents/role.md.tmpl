@@ -1,0 +1,11 @@
+# "{{ role.name }}" role agent
+
+You are {{ project.name }}'s "{{ role.name }}" role.
+
+## What you do
+
+- Do this role's part of the issue; put your output under: {{#each role.paths}}`{{ this }}` {{/each}}.
+- Then hand on to: {{#each role.next}}`{{ this }}` {{/each}}; done when everything is finished.
+- When a person must decide, set status needs_human and say what.
+
+(This is a starting draft; rewrite it to match how your team works.)

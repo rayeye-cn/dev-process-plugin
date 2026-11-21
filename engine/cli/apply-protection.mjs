@@ -13,9 +13,13 @@
  * ORDER MATTERS: merge the workflows first and see every required check report on a test PR, then run this;
  * otherwise every PR is blocked.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { BOT_ENVIRONMENT, GITLAB_MARK, gitlabPlan, githubRuleset, RULESET_NAME } from "../core/protection.mjs";
 import { apiBase, createGitlab, DEVELOPER } from "../forge/gitlab.mjs";
 import { loadPolicy } from "../core/policy.mjs";
+import { agentLabels, TEAM_FILE, validateTeam } from "../core/team.mjs";
 import { openForge } from "../forge/index.mjs";
 import { parseArgs, repoName, repoRoot, runIfMain } from "./args.mjs";
 
@@ -34,6 +38,22 @@ export async function applyGithubRuleset(forge, policy, { dryRun = false, log = 
   return { action: existing ? "update" : "create", id: saved.id, body: want };
 }
 
+
+/** Role agents (GitHub): when `.dev-process/team.json` exists, create its role and status labels (existing ones kept). */
+export async function ensureAgentLabels(forge, root, { dryRun = false, log = console.log } = {}) {
+  const file = join(root, TEAM_FILE);
+  if (!existsSync(file)) return [];
+  const labels = agentLabels(validateTeam(JSON.parse(readFileSync(file, "utf8"))));
+  for (const l of labels) {
+    if (dryRun) {
+      log(`would ensure label ${l.name}`);
+      continue;
+    }
+    await forge.rest.post(`/repos/${forge.owner}/${forge.name}/labels`, l).catch((e) => (e.status === 422 ? null : Promise.reject(e)));
+  }
+  if (!dryRun) log(`agent labels: ${labels.map((l) => l.name).join(", ")}`);
+  return labels;
+}
 
 const TOKEN_BOT = /^(project|group)_\d+_bot(_[0-9a-f]+)?$/i;
 const enc = encodeURIComponent;
@@ -212,7 +232,10 @@ async function main() {
   const policy = loadPolicy(repoRoot());
   const forge = await openForge(policy, { repo: repoName(args, repoRoot()) });
   const dryRun = Boolean(args["dry-run"]);
-  if (forge.id === "github") await applyGithubRuleset(forge, policy, { dryRun });
+  if (forge.id === "github") {
+    await applyGithubRuleset(forge, policy, { dryRun });
+    await ensureAgentLabels(forge, repoRoot(), { dryRun });
+  }
   else if (forge.id === "gitlab") await applyGitlab(forge, policy, { dryRun });
   else throw new Error(`apply-protection: forge "${forge.id}" is not supported yet`);
 }
