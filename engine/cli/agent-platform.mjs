@@ -38,10 +38,12 @@ export function tokenCommand(platform, op, { home, user = "", token = "" } = {})
     if (op === "delete") return { cmd: "/usr/bin/security", args: ["delete-generic-password", "-a", user, "-s", KEYCHAIN_SERVICE] };
   }
   if (platform === "windows") {
-    const env = { DEV_PROCESS_TOKEN_FILE: join(home, TOKEN_FILE) };
+    // PSModulePath inherited from PowerShell 7 makes Windows PowerShell 5.1 fail to load its own security module
+    // (ConvertTo-SecureString): drop it (spawn skips undefined values) so 5.1 uses its defaults.
+    const env = { DEV_PROCESS_TOKEN_FILE: join(home, TOKEN_FILE), PSModulePath: undefined };
     if (op === "read") return { cmd: "powershell.exe", args: [...PS, PS_READ], env };
     if (op === "store") return { cmd: "powershell.exe", args: [...PS, PS_STORE], env, input: token };
-    if (op === "clipboard") return { cmd: "powershell.exe", args: [...PS, PS_CLIPBOARD] };
+    if (op === "clipboard") return { cmd: "powershell.exe", args: [...PS, PS_CLIPBOARD], env: { PSModulePath: undefined } };
     if (op === "delete") return { cmd: "powershell.exe", args: [...PS, "Remove-Item -LiteralPath $env:DEV_PROCESS_TOKEN_FILE -Force -ErrorAction SilentlyContinue"], env };
   }
   throw new Error(`the role agent runs on macOS or Windows, not ${platform}`);

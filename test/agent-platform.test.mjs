@@ -33,6 +33,7 @@ test("Windows token: DPAPI through PowerShell, the path in the environment, the 
   assert.ok(!store.args.join(" ").includes("SECRET"), "never in the command line");
   assert.match(store.args.at(-1), /ConvertFrom-SecureString/);
   assert.match(store.env.DEV_PROCESS_TOKEN_FILE, /claude-token\.dpapi$/);
+  assert.ok("PSModulePath" in store.env && store.env.PSModulePath === undefined, "PowerShell 7's module path is not passed on");
   const read = tokenCommand("windows", "read", { home: "C:\\h" });
   assert.match(read.args.at(-1), /ConvertTo-SecureString/);
   assert.match(read.args.at(-1), /ZeroFreeBSTR/);
