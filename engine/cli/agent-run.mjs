@@ -13,8 +13,8 @@
  * Claude (no GitHub credential, see claudeArgs) → checks → commit / push / pull request / hand-off → cleanup.
  * mode "comment": the agent's result is only posted as a comment and the issue stops for a person (nothing is pushed).
  */
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -24,6 +24,7 @@ import { t } from "../core/messages/index.mjs";
 import { assignable, assignmentsFor, checkPaths, checkTransition, labelsFor, ownerFor, rolesOf, safeText, selectTask, TEAM_FILE, triageRole, validateTeam } from "../core/team.mjs";
 import * as gh from "../forge/github-agent.mjs";
 import { createGithub } from "../forge/github.mjs";
+import { childEnv, noHooksDir, platformOf, readToken, roleRunsHere, shellFor } from "./agent-platform.mjs";
 import { parseArgs, runIfMain } from "./args.mjs";
 
 export const AGENT_HOME = join(homedir(), ".dev-process", "agent");
@@ -37,18 +38,25 @@ export const CREDENTIAL_PATHS = Object.freeze(["~/.config/gh", "~/.ssh", "~/Libr
  * The Claude command for a role (pure): restricted mode (no settings files, file tools confined to the worktree, Bash
  * only when the role names it), dontAsk with the role's rules, a sandbox that cannot be left, structured output.
  */
-export function claudeArgs(team, role, { allowRead = [], schema = AGENT_RESULT_SCHEMA } = {}) {
+export function claudeArgs(team, role, { allowRead = [], schema = AGENT_RESULT_SCHEMA, sandbox = true } = {}) {
   const r = team.roles[role];
   const fileTools = r.tools.filter((x) => x !== "Bash");
+  if (!sandbox && r.tools.includes("Bash")) throw new Error(`role ${role} uses Bash, which needs the sandbox (not available on this machine)`);
   const settings = {
-    sandbox: {
-      enabled: true,
-      failIfUnavailable: true,
-      allowUnsandboxedCommands: false,
-      autoAllowBashIfSandboxed: false,
-      filesystem: { denyRead: [...CREDENTIAL_PATHS], allowRead: [...allowRead] },
-      network: { allowedDomains: [...r.network], strictAllowlist: true },
-    },
+    // Only Bash runs inside the sandbox; a role without Bash has nothing for it to contain (file tools are confined by
+    // --restricted), so a machine without the sandbox (native Windows) leaves it out instead of failing to start.
+    ...(sandbox
+      ? {
+          sandbox: {
+            enabled: true,
+            failIfUnavailable: true,
+            allowUnsandboxedCommands: false,
+            autoAllowBashIfSandboxed: false,
+            filesystem: { denyRead: [...CREDENTIAL_PATHS], allowRead: [...allowRead] },
+            network: { allowedDomains: [...r.network], strictAllowlist: true },
+          },
+        }
+      : {}),
     permissions: { deny: ["WebFetch", "WebSearch", "Bash(gh *)", "Bash(git push *)", "Bash(curl *)", "Bash(wget *)"] },
   };
   return [
@@ -83,7 +91,7 @@ const short = (s) => String(s).slice(0, 7);
  *               commitAndPush(dir, branch, message), cleanup(dir, branch), readDefault(path) → text }`
  * @param claude `(dir, prompt, role) → raw JSON text`
  */
-export async function runRepo({ team, login, base, ops, work, claude, mode = "comment", run, secrets = [], log = () => {} }) {
+export async function runRepo({ team, login, base, ops, work, claude, mode = "comment", run, secrets = [], log = () => {}, canRun = () => true }) {
   const lang = team.language;
   const L = team.labels;
   const say = (code, params) => safeLines(t(lang, code, params));
@@ -146,7 +154,16 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
   }
 
   // 4. At most one task.
-  const { task, skipped } = selectTask(team, login, ready);
+  // Roles this machine cannot run (Bash without a sandbox) are left for a machine that can.
+  const runnable = ready.filter((i) => {
+    const r = Object.keys(team.roles).find((x) => i.labels.includes(`${L.rolePrefix}${x}`));
+    if (r && !canRun(r)) {
+      log(`skip #${i.number}: role ${r} needs the sandbox, not available here`);
+      return false;
+    }
+    return true;
+  });
+  const { task, skipped } = selectTask(team, login, runnable);
   for (const s of skipped) log(`skip #${s.number}: ${s.why}`);
   if (!task) return { ...out, idle: "noTask" };
   const { issue, role, triage } = task;
@@ -355,7 +372,7 @@ async function assignTo(ops, team, issue, role) {
  */
 export function runAsync(cmd, args, { cwd, input = null, env, timeoutMs }) {
   return new Promise((resolveRun) => {
-    const child = spawn(cmd, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     const out = [];
     const err = [];
     let killed = false;
@@ -406,7 +423,7 @@ function boundOps(forge) {
 }
 
 /** The agent's own clone of a repository (never the person's checkout), fetched to the default branch. */
-function machineWork({ repo, base, home }) {
+function machineWork({ repo, base, home, platform = platformOf() }) {
   const clone = join(home, "repos", repo.replace("/", "__"));
   if (!existsSync(join(clone, ".git"))) {
     mkdirSync(join(home, "repos"), { recursive: true });
@@ -443,7 +460,8 @@ function machineWork({ repo, base, home }) {
     },
     setup: async (dir, commands) => {
       for (const c of commands) {
-        const r = await runAsync("/bin/sh", ["-c", c], { cwd: dir, env: process.env, timeoutMs: 30 * 60_000 });
+        const [cmd, args] = shellFor(platform, c);
+        const r = await runAsync(cmd, args, { cwd: dir, env: process.env, timeoutMs: 30 * 60_000 });
         if (r.status !== 0) return { ok: false, why: `setup \`${c}\` → ${r.status ?? r.signal}` };
       }
       return { ok: true };
@@ -452,7 +470,9 @@ function machineWork({ repo, base, home }) {
     changedFiles: async (dir) => parsePorcelainZ(execFileSync("git", ["-C", dir, "-c", "core.quotePath=false", "status", "--porcelain=v1", "-z", "--no-renames", "-uall"], { encoding: "utf8" })), // not trimmed: " M path" starts with a space
     // No hooks: setup commands (npm ci) may point core.hooksPath into the worktree, where the model could edit a hook.
     commitAndPush: async (dir, branch, message) => {
-      const g = (...a) => sh("git", ["-C", dir, "-c", "core.hooksPath=/dev/null", ...a]);
+      const hooks = noHooksDir(home);
+      mkdirSync(hooks, { recursive: true });
+      const g = (...a) => sh("git", ["-C", dir, "-c", `core.hooksPath=${hooks}`, ...a]);
       g("add", "-A");
       g("commit", "--quiet", "--no-verify", "-m", message);
       g("push", "--quiet", "--no-verify", "origin", `HEAD:refs/heads/${branch}`);
@@ -478,16 +498,16 @@ function machineWork({ repo, base, home }) {
   };
 }
 
-function machineClaude({ team, claudeBin, token, home, clone }) {
+function machineClaude({ team, claudeBin, token, home, clone, platform = platformOf() }) {
   const cfg = join(home, "claude-config");
   mkdirSync(cfg, { recursive: true });
   return async (dir, prompt, role) => {
-    const r = await runAsync(claudeBin, claudeArgs(team, role, { allowRead: [dir, clone] }), {
+    const r = await runAsync(claudeBin, claudeArgs(team, role, { allowRead: [dir, clone], sandbox: platform !== "windows" }), {
       cwd: dir,
       input: prompt,
       timeoutMs: 90 * 60_000,
       // A clean environment: no GitHub token, no API key (it would win over the OAuth token), the agent's own config dir.
-      env: { HOME: homedir(), USER: process.env.USER ?? "", PATH: process.env.PATH ?? "/usr/bin:/bin", LANG: "en_US.UTF-8", CLAUDE_CONFIG_DIR: cfg, CLAUDE_CODE_OAUTH_TOKEN: token },
+      env: childEnv(platform, { configDir: cfg, token }),
     });
     return r.stdout ?? "";
   };
@@ -537,16 +557,24 @@ async function main(argv = process.argv.slice(2)) {
   const release = takeLock(home);
   if (!release) return console.log("another run is going");
   const run = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-");
-  const logLine = (s) => console.log(`[${new Date().toISOString()}] ${s}`);
+  // --log: Task Scheduler (Windows) keeps no output, so the runner appends its own log; launchd also redirects stdout.
+  const logFile = args.log ?? null;
+  const logLine = (s) => {
+    const line = `[${new Date().toISOString()}] ${s}`;
+    console.log(line);
+    if (logFile) appendFileSync(logFile, `${line}\n`);
+  };
+  const platform = platformOf();
   try {
     const ghToken = sh("gh", ["auth", "token"]);
-    const token = sh("/usr/bin/security", ["find-generic-password", "-a", process.env.USER ?? "", "-s", config.keychainService ?? "dev-process-agent-claude", "-w"]);
+    const token = readToken(platform, (cmd, a, o) => spawnSyncOut(cmd, a, o), { home, user: process.env.USER ?? process.env.USERNAME ?? "" });
+    if (!token) throw new Error("no Claude token stored for the agent on this machine (run the agent skill's setup)");
     const login = sh("gh", ["api", "user", "--jq", ".login"]);
     if (config.login && config.login.toLowerCase() !== login.toLowerCase()) throw new Error(`gh is logged in as ${login}, the agent is set up for ${config.login}`);
     for (const repo of config.repos ?? []) {
       const forge = createGithub({ repo, env: { GH_TOKEN: ghToken } });
       const base = await forge.defaultBranch();
-      const work = machineWork({ repo, base, home });
+      const work = machineWork({ repo, base, home, platform });
       let team;
       try {
         team = validateTeam(JSON.parse(await work.readDefault(TEAM_FILE)));
@@ -560,7 +588,8 @@ async function main(argv = process.argv.slice(2)) {
         base,
         ops: boundOps(forge),
         work,
-        claude: machineClaude({ team, claudeBin: config.claude ?? "claude", token, home, clone: work.clone }),
+        claude: machineClaude({ team, claudeBin: config.claude ?? "claude", token, home, clone: work.clone, platform }),
+        canRun: (role) => roleRunsHere(team, role, { sandbox: platform !== "windows" }),
         mode: config.mode === "full" && !args["dry-run"] ? "full" : "comment",
         run,
         secrets: [ghToken, token],
@@ -570,9 +599,18 @@ async function main(argv = process.argv.slice(2)) {
       // Reports are part of the full mode (the comment-only pilot posts nothing but its comments).
       if (config.mode === "full" && !args["dry-run"] && team.people.some((p) => p.lead && p.login.toLowerCase() === login.toLowerCase())) await leadReports({ forge, team, repo, home, log: logLine });
     }
+  } catch (e) {
+    logLine(`error: ${e.message}`);
+    process.exitCode = 1;
   } finally {
     release();
   }
+}
+
+/** A synchronous child with its output (for the token read: stdin / stdout only, never logged). */
+function spawnSyncOut(cmd, args, { env, input } = {}) {
+  const r = spawnSync(cmd, args, { encoding: "utf8", input: input ?? "", env: env ? { ...process.env, ...env } : process.env, windowsHide: true });
+  return { status: r.status, stdout: r.stdout ?? "" };
 }
 
 runIfMain(import.meta.url, "agent-run", main);

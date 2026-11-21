@@ -39,6 +39,24 @@ jobs:
       - run: npm install -g @anthropic-ai/claude-code
       - run: claude plugin validate --strict .
 
+  windows-agent:
+    # The role agent on Windows: its unit tests on Windows, and a smoke test of the machine parts (the DPAPI token
+    # store, the Task Scheduler task and its command line, resolving and starting claude.exe).
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test test/team.test.mjs test/agent-run.test.mjs test/agent-platform.test.mjs test/agent-install.test.mjs test/agent-report.test.mjs test/forge-github-agent.test.mjs
+      - run: npm install -g @anthropic-ai/claude-code
+      - name: Smoke test
+        shell: pwsh
+        run: node test/support/windows-agent-smoke.mjs "$env:RUNNER_TEMP\agent-smoke"
+
   actionlint:
     # Lint the workflows the plugin renders (several answer variants), including shellcheck on their run scripts.
     runs-on: ubuntu-latest
