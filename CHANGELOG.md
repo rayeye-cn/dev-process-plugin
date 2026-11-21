@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.1.0 (2026-11-21)
+
+Role agents (pilot, GitHub, macOS). Each participant's computer runs a scheduled job that picks up the issues assigned
+to that person for their role, works on them with Claude Code and hands them on to the next role; the review process
+stays the human gate. Design and the measured safety checks: `docs/design/agents.md`.
+
+- `/dev-process:agent`: set up, check, pause, resume or remove the job on this machine (`tools/agent-install.mjs`,
+  a LaunchAgent; the Claude token stays in the login keychain, created by the person in their own terminal).
+- `.dev-process/team.json` (from the answers' new `team` section, read from the default branch only): people and roles,
+  allowed hand-offs, each role's writable paths, tools, allowed commands, setup commands and model, accounts never to
+  notify. Each role's instructions are seeded once in `.dev-process/agents/<role>.md` (product, UI, engineering,
+  marketing, or a generic one).
+- The runner (`engine/cli/agent-run.mjs`): the model gets no GitHub credential — `claude --restricted` with dontAsk and
+  the role's allowlist, an inescapable sandbox with credential paths unreadable, a clean environment and its own config
+  directory, structured output; the runner does every write under the person's login (claim, commit, push, pull
+  request, labels, assignment), refuses changes to the review process files, strips mentions, references, hidden
+  markers and command lines from model text. A "comment" mode commits nothing.
+- Assignment, not self-claiming: issues without a role go to the triage role's person; hand-offs assign the next role's
+  person. Low-tier agent pull requests can be queued automatically (`autoQueueLow`); medium / high remind the author to
+  sign off.
+- The project lead's machine posts a daily and a weekly report to a fixed issue.
+- `apply-protection` (GitHub) creates the role and status labels when the team file exists.
+
+Not yet: Windows, GitLab, the marketing role across repositories, a measured cost per engineering task.
+
 ## 1.0.0 (2026-11-20)
 
 First release. Installs a Claude-Code-team-style development and review process into a repository.

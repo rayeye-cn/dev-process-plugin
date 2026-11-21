@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { renderReport, reportsDue, summarize } from "../core/agent-report.mjs";
 import { AGENT_RESULT_SCHEMA, buildAgentPrompt, parseAgentResult } from "../core/agent-result.mjs";
 import { t } from "../core/messages/index.mjs";
 import { assignable, assignmentsFor, checkPaths, checkTransition, labelsFor, ownerFor, rolesOf, safeText, selectTask, TEAM_FILE, triageRole, validateTeam } from "../core/team.mjs";
@@ -361,6 +362,26 @@ function machineClaude({ team, claudeBin, token, home, clone }) {
   };
 }
 
+/** The lead's machine posts the daily / weekly report to the report issue when one is due (state kept per repository). */
+export async function leadReports({ forge, team, repo, home, now = new Date(), log = () => {} }) {
+  const file = join(home, "state.json");
+  const state = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+  const mine = state[repo] ?? {};
+  const due = reportsDue(now, mine);
+  if (!due.length) return [];
+  const blocked = (await gh.issuesWithLabel(forge, team.labels.blocked)).map((i) => ({ number: i.number, title: i.title, assignees: i.assignees }));
+  const number = await gh.reportIssue(forge, { title: t(team.language, "agent.report.issueTitle"), label: "agent-report" });
+  for (const period of due) {
+    const since = new Date(now.getTime() - (period === "weekly" ? 7 : 1) * 86_400_000).toISOString();
+    const sum = summarize(team, { comments: await gh.commentsSince(forge, since), pulls: await gh.agentPullsSince(forge, since), blocked, since });
+    await gh.comment(forge, number, safeLines(renderReport(team, sum, { period, since, until: now.toISOString() })));
+    mine[period] = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    log(`${repo}: ${period} report posted to #${number}`);
+  }
+  writeFileSync(file, `${JSON.stringify({ ...state, [repo]: mine }, null, 2)}\n`);
+  return due;
+}
+
 /** One lock per machine: a second run while one is going exits at once. */
 function takeLock(home) {
   const lock = join(home, "run.lock");
@@ -415,6 +436,7 @@ async function main(argv = process.argv.slice(2)) {
         log: (s) => logLine(`${repo}: ${s}`),
       });
       logLine(`${repo}: ${JSON.stringify(result)}`);
+      if (team.people.some((p) => p.lead && p.login.toLowerCase() === login.toLowerCase())) await leadReports({ forge, team, repo, home, log: logLine });
     }
   } finally {
     release();

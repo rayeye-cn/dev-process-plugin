@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- dev-process role agent: runs the agent every {{ intervalMin }} minutes while you are logged in. Remove with the agent skill. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{{ label }}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{ node }}</string>
+    <string>{{ script }}</string>
+    <string>--config</string>
+    <string>{{ config }}</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>{{ path }}</string>
+  </dict>
+  <key>StartInterval</key><integer>{{ intervalSec }}</integer>
+  <key>RunAtLoad</key><false/>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>StandardOutPath</key><string>{{ out }}</string>
+  <key>StandardErrorPath</key><string>{{ err }}</string>
+</dict>
+</plist>

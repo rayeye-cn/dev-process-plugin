@@ -92,3 +92,30 @@ export async function dropReviewers(forge, number, logins) {
   if (drop.length) await forge.rest.delete(`${repoPath(forge)}/pulls/${number}/requested_reviewers`, { reviewers: drop });
   return drop;
 }
+
+/** Comments on every issue and pull request of the repository since `since` (ISO): `[{ login, body, issue }]`. */
+export async function commentsSince(forge, since) {
+  return (await forge.rest.paginate(`${repoPath(forge)}/issues/comments?since=${enc(since)}&sort=created&direction=asc`)).map((c) => ({
+    login: c.user?.login ?? "",
+    body: c.body ?? "",
+    issue: Number(String(c.issue_url ?? "").split("/").pop()),
+  }));
+}
+
+/** Pull requests from `agent/…` branches updated since `since`: `[{ number, title, createdAt, mergedAt, role }]`. */
+export async function agentPullsSince(forge, since, prefix = "agent/") {
+  const out = [];
+  for (const p of await forge.rest.paginate(`${repoPath(forge)}/pulls?state=all&sort=updated&direction=desc`)) {
+    if (new Date(p.updated_at) < new Date(since)) break;
+    if (!String(p.head?.ref ?? "").startsWith(prefix)) continue;
+    out.push({ number: p.number, title: p.title ?? "", createdAt: p.created_at, mergedAt: p.merged_at ?? null, role: String(p.head.ref).split("/")[1] ?? null });
+  }
+  return out;
+}
+
+/** The open issue that collects the reports (by label), created when missing; returns its number. */
+export async function reportIssue(forge, { title, label }) {
+  const open = await issuesWithLabel(forge, label);
+  if (open.length) return open[0].number;
+  return createIssue(forge, { title, body: title, labels: [label] });
+}

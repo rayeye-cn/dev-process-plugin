@@ -55,6 +55,13 @@ const zh = {
   "agent.pr.footer": (p) => `由「${p.role}」代理生成（运行 \`${p.run}\`），作者对内容负责：合入前请读过改动与验证结果。`,
   "agent.pr.signoff": (p) => `风险门判为 **${p.tier}**：需要作者本人读过证据后，在评论里发签署命令（格式见 PR 模板）${p.tier === "high" ? "，并且要另一位同事批准" : ""}。代理不会代发。`,
   "agent.pr.queued": "风险门判为 low：已自动加入合并队列。",
+  "agent.report.daily": (p) => `**岗位代理日报**（${p.since} 至 ${p.until}）`,
+  "agent.report.weekly": (p) => `**岗位代理周报**（${p.since} 至 ${p.until}）`,
+  "agent.report.tableHead": "| 岗位 | 领取 | 交接出去 | 完成 / 开 PR | 停下等人 |",
+  "agent.report.pulls": (p) => `代理开的 PR：新开 ${p.opened} 个，合入 ${p.merged} 个。`,
+  "agent.report.blocked": (p) => `**等人处理的 issue（${p.n} 个）**`,
+  "agent.report.noneBlocked": "没有等人处理的 issue。",
+  "agent.report.issueTitle": "岗位代理进展",
 };
 
 const en = {
@@ -106,6 +113,13 @@ const en = {
   "agent.pr.footer": (p) => `Made by the "${p.role}" agent (run \`${p.run}\`). The author answers for it: read the change and the verification before merging.`,
   "agent.pr.signoff": (p) => `The risk gate says **${p.tier}**: the author must read the evidence and post the sign-off command (format in the PR template)${p.tier === "high" ? ", and another person must approve" : ""}. The agent never posts it.`,
   "agent.pr.queued": "The risk gate says low: added to the merge queue automatically.",
+  "agent.report.daily": (p) => `**Role agents, daily** (${p.since} to ${p.until})`,
+  "agent.report.weekly": (p) => `**Role agents, weekly** (${p.since} to ${p.until})`,
+  "agent.report.tableHead": "| Role | Claimed | Handed on | Finished / PR | Stopped for a person |",
+  "agent.report.pulls": (p) => `Agent pull requests: ${p.opened} opened, ${p.merged} merged.`,
+  "agent.report.blocked": (p) => `**Issues waiting for a person (${p.n})**`,
+  "agent.report.noneBlocked": "No issue is waiting for a person.",
+  "agent.report.issueTitle": "Role agent progress",
 };
 
 export default { zh, en };
