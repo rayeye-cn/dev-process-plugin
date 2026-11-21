@@ -79,9 +79,9 @@ function fakeWork({ files = [], setupOk = true } = {}) {
   return {
     calls,
     readDefault: async (p) => `# instructions for ${p}`,
-    prepare: async (issue, role, run) => {
-      calls.push(["prepare", issue.number, role]);
-      return { dir: `/w/${issue.number}`, branch: `agent/${role}/${issue.number}-${run}` };
+    prepare: async (issue, role, run, branch = null) => {
+      calls.push(["prepare", issue.number, role, branch]);
+      return { dir: `/w/${issue.number}`, branch: branch ?? `agent/${role}/${issue.number}-${run}` };
     },
     setup: async (dir, cmds) => (calls.push(["setup", cmds]), setupOk ? { ok: true } : { ok: false, why: "npm ci → 1" }),
     changedFiles: async () => files,
@@ -280,4 +280,46 @@ test("the PR body ends with the repository's PR template (its empty Closes line 
   assert.match(body, /^Closes #62/);
   assert.match(body, /---\n\n## Risk\n\n## Sign-off$/);
   assert.equal(body.match(/Closes #/g).length, 1);
+});
+
+test("opening the PR fails after the push: an existing PR for the branch is used, otherwise the branch is named", async () => {
+  for (const [existing, expect] of [[{ number: 77, url: "u" }, "review"], [null, "failed"]]) {
+    const ops = fakeOps({ issues: [issue({ number: 63, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
+    ops.createPull = async () => {
+      throw new Error("fetch failed");
+    };
+    ops.openPullForBranch = async () => existing;
+    const r = await go({ login: "dev-b", ops, work: fakeWork({ files: ["src/a.ts"] }), claude: answer({ status: "done", summary: "s", next: "done", pr: { title: "t", body: "b" } }) });
+    assert.equal(r.task.result, expect);
+    if (!existing) assert.match(ops.writes.filter((w) => w[0] === "comment").at(-1)[2], /agent\/dev\/63-R1/);
+  }
+});
+
+test("stopping for a person keeps the work: a draft PR, linked in the blocked comment", async () => {
+  const ops = fakeOps({ issues: [issue({ number: 64, labels: ["role:product", "agent:ready"], assignees: ["lead-a"] })] });
+  const work = fakeWork({ files: [".prd/64-discount.md"] });
+  const r = await go({ login: "lead-a", ops, work, claude: answer({ status: "needs_human", summary: "draft written", next: "ui", questions: ["Rounding?"], pr: { title: "docs: discount PRD", body: "b" } }) });
+  assert.equal(r.task.result, "human");
+  const pr = ops.writes.find((w) => w[0] === "createPull");
+  assert.equal(pr[2].draft, true);
+  assert.match(pr[2].body, /^Refs #64/);
+  assert.match(ops.writes.filter((w) => w[0] === "comment").at(-1)[2], new RegExp(`#${pr[1]}`));
+});
+
+test("the next run continues the draft PR on its branch, updates it and marks it ready", async () => {
+  const ops = fakeOps({ issues: [issue({ number: 65, labels: ["role:product", "agent:ready"], assignees: ["lead-a"] })] });
+  const calls = [];
+  ops.agentPullForIssue = async (login, n, role) => (n === 65 && role === "product" ? { number: 80, ref: "agent/product/65-R0", draft: true, nodeId: "PR_N" } : null);
+  ops.updatePull = async (n, o) => calls.push(["updatePull", n, o]);
+  ops.markReady = async (id) => calls.push(["markReady", id]);
+  const work = fakeWork({ files: [".prd/65-discount.md"] });
+  let prompt = "";
+  const r = await go({ login: "lead-a", ops, work, claude: async (dir, p) => ((prompt = p), JSON.stringify({ structured_output: { status: "done", summary: "final", next: "ui", pr: { title: "docs: discount PRD", body: "b" } } })) });
+  assert.equal(r.task.result, "handoff:ui");
+  assert.deepEqual(work.calls.find((c) => c[0] === "prepare"), ["prepare", 65, "product", "agent/product/65-R0"]);
+  assert.match(work.calls.find((c) => c[0] === "commitAndPush")[1], /^agent\/product\/65-R0$/);
+  assert.ok(!ops.writes.some((w) => w[0] === "createPull"), "no second PR");
+  assert.equal(calls[0][0], "updatePull");
+  assert.deepEqual(calls[1], ["markReady", "PR_N"]);
+  assert.match(prompt, /continuing earlier work/);
 });

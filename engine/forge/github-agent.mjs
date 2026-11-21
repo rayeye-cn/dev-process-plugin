@@ -73,8 +73,8 @@ export async function createIssue(forge, { title, body, labels = [], assignees =
 }
 
 /** A new pull request; returns `{ number, url }`. */
-export async function createPull(forge, { head, base, title, body }) {
-  const p = await forge.rest.post(`${repoPath(forge)}/pulls`, { head, base, title, body, maintainer_can_modify: true });
+export async function createPull(forge, { head, base, title, body, draft = false }) {
+  const p = await forge.rest.post(`${repoPath(forge)}/pulls`, { head, base, title, body, draft, maintainer_can_modify: true });
   return { number: p.number, url: p.html_url };
 }
 
@@ -82,7 +82,21 @@ export async function createPull(forge, { head, base, title, body }) {
 export async function agentPulls(forge, login, prefix = "agent/") {
   return (await forge.rest.paginate(`${repoPath(forge)}/pulls?state=open`))
     .filter((p) => p.user?.login?.toLowerCase() === String(login).toLowerCase() && String(p.head?.ref ?? "").startsWith(prefix) && p.head?.repo?.full_name === forge.repo)
-    .map((p) => ({ number: p.number, labels: (p.labels ?? []).map((l) => l.name), headSha: p.head?.sha, ref: p.head?.ref, body: p.body ?? "" }));
+    .map((p) => ({ number: p.number, labels: (p.labels ?? []).map((l) => l.name), headSha: p.head?.sha, ref: p.head?.ref, body: p.body ?? "", draft: Boolean(p.draft), nodeId: p.node_id, url: p.html_url }));
+}
+
+/** My open agent PR for this issue and role (an earlier run's draft), or null. */
+export async function agentPullForIssue(forge, login, number, role) {
+  return (await agentPulls(forge, login)).find((p) => p.ref.startsWith(`agent/${role}/${number}-`)) ?? null;
+}
+
+export async function updatePull(forge, number, { title, body }) {
+  await forge.rest.patch(`${repoPath(forge)}/pulls/${number}`, { title, body });
+}
+
+/** A draft PR becomes ready for review (GraphQL only). */
+export async function markReady(forge, nodeId) {
+  await forge.graphql("mutation($id:ID!){ markPullRequestReadyForReview(input:{pullRequestId:$id}){ pullRequest{ number } } }", { id: nodeId });
 }
 
 /** Requested reviewers of a pull request (logins), to take the never-notify accounts off again. */
@@ -118,4 +132,10 @@ export async function reportIssue(forge, { title, label }) {
   const open = await issuesWithLabel(forge, label);
   if (open.length) return open[0].number;
   return createIssue(forge, { title, body: title, labels: [label] });
+}
+
+/** The open pull request from `branch` of this repository, `{ number, url }` or null. */
+export async function openPullForBranch(forge, branch) {
+  const p = (await forge.rest.get(`${repoPath(forge)}/pulls?state=open&head=${enc(`${forge.owner}:${branch}`)}`))?.[0];
+  return p ? { number: p.number, url: p.html_url } : null;
 }

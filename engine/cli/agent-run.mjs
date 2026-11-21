@@ -142,7 +142,9 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
 
   let prepared = null;
   try {
-    prepared = await work.prepare(issue, role, run);
+    // An earlier run of this role on this issue left a draft PR (it stopped for a person): continue on its branch.
+    const existing = ops.agentPullForIssue ? await ops.agentPullForIssue(login, issue.number, role) : null;
+    prepared = await work.prepare(issue, role, run, existing?.ref ?? null);
     const setup = triage ? { ok: true } : await work.setup(prepared.dir, team.roles[role].setup);
     if (!setup.ok) return await stop(out, "failed", setup.why);
     const r = team.roles[role];
@@ -151,7 +153,7 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
       lang,
       instructions,
       issue: { ...issue, comments: await ops.issueComments(issue.number) },
-      context: { role, triage, next: r.next, paths: r.paths, protectedPaths: team.protectedPaths, roles: Object.keys(team.roles) },
+      context: { role, triage, next: r.next, paths: r.paths, protectedPaths: team.protectedPaths, roles: Object.keys(team.roles), continued: Boolean(existing) },
     });
     const result = parseAgentResult(await claude(prepared.dir, prompt, role));
     if (!result) return await stop(out, "failed", lang === "zh" ? "没有给出可用的结果" : "no usable result");
@@ -166,9 +168,8 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
       return out;
     }
 
-    if (result.status !== "done") return await stop(out, "human", null, result);
-
     if (triage) {
+      if (result.status !== "done") return await stop(out, "human", null, result);
       const target = result.triage?.role ?? result.next;
       if (!team.roles[target]) return await stop(out, "badHandoff", target);
       const subtasks = [];
@@ -184,11 +185,12 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
       return out;
     }
 
-    const next = result.next;
-    const hop = checkTransition(team, role, next);
-    if (!hop.ok) return await stop(out, "badHandoff", next);
+    const done = result.status === "done";
+    const next = done ? result.next : "human";
+    if (done && !checkTransition(team, role, next).ok) return await stop(out, "badHandoff", next);
 
-    let pr = null;
+    // The work so far is kept even when the agent stops for a person: it goes to a draft PR the next run continues.
+    let pr = existing ? { number: existing.number, url: existing.url ?? null } : null;
     if (files.length) {
       const scope = checkPaths(team, role, files);
       if (!scope.ok) {
@@ -207,7 +209,7 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
       }
       await work.commitAndPush(prepared.dir, prepared.branch, `${title}\n\nAgent-Run: ${run}\nAgent-Role: ${role}\nRefs: #${issue.number}`);
       const body = [
-        `${team.roles[next] ? "Refs" : "Closes"} #${issue.number}`,
+        `${done && !team.roles[next] ? "Closes" : "Refs"} #${issue.number}`,
         "",
         clean(result.pr?.body || result.summary),
         "",
@@ -221,10 +223,23 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
         // The repository's own PR template follows, for the author to complete (risk, recovery, sign-off).
         ...(template ? ["", "---", "", template.replace(/^\s*(Closes|Refs) #\s*$/gim, "").trim()] : []),
       ].join("\n");
-      pr = await ops.createPull({ head: prepared.branch, base, title, body });
-      await ops.dropReviewers(pr.number, team.neverNotify);
+      if (existing) await ops.updatePull(existing.number, { title, body });
+      else {
+        // The branch is pushed: if opening the PR fails, a PR may still exist (the request reached GitHub) — look it
+        // up; otherwise stop and name the branch so a person can open it.
+        try {
+          pr = await ops.createPull({ head: prepared.branch, base, title, body, draft: !done });
+        } catch (e) {
+          pr = ops.openPullForBranch ? await ops.openPullForBranch(prepared.branch).catch(() => null) : null;
+          if (!pr) return await stop(out, "failed", `${String(e.message).slice(0, 120)} (branch \`${prepared.branch}\`)`);
+        }
+        await ops.dropReviewers(pr.number, team.neverNotify);
+      }
       out.task.pr = pr.number;
     }
+
+    if (!done) return await stop(out, "human", null, result, pr);
+    if (existing?.draft) await ops.markReady(existing.nodeId);
 
     if (team.roles[next]) {
       await moveTo(ops, team, issue, role, next);
@@ -242,7 +257,7 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
       await ops.closeIssue(issue.number);
       out.task.result = "done";
     } else {
-      return await stop(out, "human", null, result);
+      return await stop(out, "human", null, result, pr);
     }
     return out;
   } catch (e) {
@@ -252,11 +267,11 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
     if (prepared) await work.cleanup(prepared.dir, prepared.branch).catch((e) => log(`cleanup: ${e.message}`));
   }
 
-  async function stop(o, kind, detail, result = null) {
+  async function stop(o, kind, detail, result = null, pr = null) {
     await moveTo(ops, team, issue, role, "human");
     const clean = (s) => safeText(s, { secrets });
     const body =
-      kind === "human" ? say("agent.comment.blocked", { role, summary: clean(result?.summary ?? ""), questions: (result?.questions ?? []).map(clean), ready: L.ready })
+      kind === "human" ? say("agent.comment.blocked", { role, summary: clean(result?.summary ?? ""), questions: (result?.questions ?? []).map(clean), ready: L.ready, draft: pr ? `#${pr.number}` : "" })
       : kind === "badHandoff" ? say("agent.comment.badHandoff", { role, next: clean(detail ?? "") })
       : say("agent.comment.failed", { role, why: clean(detail ?? ""), ready: L.ready });
     await ops.comment(issue.number, `${body}\n\n${marker({ run, kind, role })}`);
@@ -308,6 +323,10 @@ function boundOps(forge) {
     createPull: b(gh.createPull),
     agentPulls: b(gh.agentPulls),
     dropReviewers: b(gh.dropReviewers),
+    openPullForBranch: b(gh.openPullForBranch),
+    agentPullForIssue: b(gh.agentPullForIssue),
+    updatePull: b(gh.updatePull),
+    markReady: b(gh.markReady),
     closeIssue: (n) => forge.rest.patch(`/repos/${forge.owner}/${forge.name}/issues/${n}`, { state: "closed", state_reason: "completed" }),
   };
 }
@@ -324,12 +343,18 @@ function machineWork({ repo, base, home }) {
   return {
     clone,
     readDefault: async (path) => git("show", `origin/${base}:${path}`),
-    prepare: async (issue, role, run) => {
+    // A new branch from the default branch, or (continuing a draft PR) the existing agent branch.
+    prepare: async (issue, role, run, branch = null) => {
       const dir = join(home, "work", `${repo.replace("/", "__")}-${issue.number}-${run}`);
-      const branch = `agent/${role}/${issue.number}-${run}`;
       mkdirSync(join(home, "work"), { recursive: true });
-      git("worktree", "add", "--quiet", "-b", branch, dir, `origin/${base}`);
-      return { dir, branch };
+      if (branch) {
+        git("fetch", "--quiet", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+        git("worktree", "add", "--quiet", "-B", branch, dir, `origin/${branch}`);
+        return { dir, branch };
+      }
+      const fresh = `agent/${role}/${issue.number}-${run}`;
+      git("worktree", "add", "--quiet", "-b", fresh, dir, `origin/${base}`);
+      return { dir, branch: fresh };
     },
     setup: async (dir, commands) => {
       for (const c of commands) {

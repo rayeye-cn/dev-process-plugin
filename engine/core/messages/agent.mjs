@@ -29,6 +29,7 @@ const zh = {
       "如果它其实是几件事，在 triage.subtasks 里拆开（每条写标题、正文、岗位），运行器会开成子 issue。",
       "不要改任何文件。看不明白、或需要人定方向，status 填 needs_human、next 填 human，并在 questions 里写清问题。",
     ].join("\n"),
+  "agent.prompt.continue": "你在接着之前的工作：工作区里的分支已经有你上一次的改动（对应一个草稿 PR），评论里有人对你上次的问题作了回答。在此基础上继续，不要从头再来。",
   "agent.prompt.issueHeader": (p) => `issue #${p.number}（标题与正文，按原文显示）：`,
   "agent.prompt.commentsHeader": "最近的评论（按原文显示）：",
   "agent.prompt.answer": "最后只按给定的 JSON 格式作答。summary 用中文写给人看：做了什么、结果如何。",
@@ -38,7 +39,7 @@ const zh = {
   "agent.comment.done": (p) => [`「${p.role}」代理已完成。`, "", p.summary].join("\n"),
   "agent.comment.review": (p) => [`「${p.role}」代理已开 PR ${p.ref}，合入后这个 issue 会关闭。`, "", p.summary, ...(p.handoff ? ["", "**交接说明**", "", p.handoff] : [])].join("\n"),
   "agent.comment.blocked": (p) =>
-    [`「${p.role}」代理需要人来决定，已停下。`, "", p.summary, ...(Array.isArray(p.questions) && p.questions.length ? ["", "**要决定的事**", "", ...p.questions.map((q) => `- ${q}`)] : []), "", `处理完后，重新打上 \`${p.ready}\` 标签，代理会接着做。`].join("\n"),
+    [`「${p.role}」代理需要人来决定，已停下。`, "", p.summary, ...(p.draft && typeof p.draft === "string" ? ["", `目前的进度在草稿 PR ${p.draft} 里；回答后代理会在同一个 PR 上接着做。`] : []), ...(Array.isArray(p.questions) && p.questions.length ? ["", "**要决定的事**", "", ...p.questions.map((q) => `- ${q}`)] : []), "", `处理完后，重新打上 \`${p.ready}\` 标签，代理会接着做。`].join("\n"),
   "agent.comment.failed": (p) => `「${p.role}」代理这次没有完成：${p.why}。已停下，需要人看一下；处理完后重新打上 \`${p.ready}\` 标签。`,
   "agent.comment.refusedPaths": (p) =>
     [
@@ -87,6 +88,7 @@ const en = {
       "If it is really several pieces of work, split them in triage.subtasks (title, body, role each); the runner opens them as sub-issues.",
       "Do not change any files. If it is unclear or a person must set the direction, set status needs_human, next human, and ask in questions.",
     ].join("\n"),
+  "agent.prompt.continue": "You are continuing earlier work: the branch in this worktree already has your previous changes (a draft PR), and the comments answer the questions you asked. Build on them; do not start over.",
   "agent.prompt.issueHeader": (p) => `Issue #${p.number} (title and body, verbatim):`,
   "agent.prompt.commentsHeader": "Recent comments (verbatim):",
   "agent.prompt.answer": "Finally, answer only in the given JSON format. Write summary in English for people: what you did and how it went.",
@@ -96,7 +98,7 @@ const en = {
   "agent.comment.done": (p) => [`The "${p.role}" agent finished.`, "", p.summary].join("\n"),
   "agent.comment.review": (p) => [`The "${p.role}" agent opened ${p.ref}; this issue closes when it merges.`, "", p.summary, ...(p.handoff ? ["", "**Hand-off notes**", "", p.handoff] : [])].join("\n"),
   "agent.comment.blocked": (p) =>
-    [`The "${p.role}" agent needs a person to decide and stopped.`, "", p.summary, ...(Array.isArray(p.questions) && p.questions.length ? ["", "**To decide**", "", ...p.questions.map((q) => `- ${q}`)] : []), "", `When done, add the \`${p.ready}\` label again and the agent carries on.`].join("\n"),
+    [`The "${p.role}" agent needs a person to decide and stopped.`, "", p.summary, ...(p.draft && typeof p.draft === "string" ? ["", `The work so far is in draft ${p.draft}; after your answer the agent continues on the same PR.`] : []), ...(Array.isArray(p.questions) && p.questions.length ? ["", "**To decide**", "", ...p.questions.map((q) => `- ${q}`)] : []), "", `When done, add the \`${p.ready}\` label again and the agent carries on.`].join("\n"),
   "agent.comment.failed": (p) => `The "${p.role}" agent did not finish this time: ${p.why}. It stopped and needs a person to look; add the \`${p.ready}\` label again afterwards.`,
   "agent.comment.refusedPaths": (p) =>
     [

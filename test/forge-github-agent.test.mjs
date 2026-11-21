@@ -89,7 +89,9 @@ test("createPull and agentPulls (only my agent/ branches from this repository)",
   });
   assert.deepEqual(await gh.createPull(forge, { head: "agent/dev/7-R1", base: "main", title: "t", body: "b" }), { number: 9, url: "https://github.com/o/r/pull/9" });
   assert.equal(fetch.calls[0].body.head, "agent/dev/7-R1");
-  assert.deepEqual(await gh.agentPulls(forge, "DEV-B"), [{ number: 9, labels: ["risk:low"], headSha: "abc", ref: "agent/dev/7-R1", body: "x" }]);
+  assert.deepEqual(await gh.agentPulls(forge, "DEV-B"), [{ number: 9, labels: ["risk:low"], headSha: "abc", ref: "agent/dev/7-R1", body: "x", draft: false, nodeId: undefined, url: undefined }]);
+  assert.equal((await gh.agentPullForIssue(forge, "dev-b", 7, "dev")).number, 9);
+  assert.equal(await gh.agentPullForIssue(forge, "dev-b", 7, "ui"), null);
 });
 
 test("dropReviewers removes only the listed accounts from the requested reviewers", async () => {
@@ -99,4 +101,33 @@ test("dropReviewers removes only the listed accounts from the requested reviewer
   });
   assert.deepEqual(await gh.dropReviewers(forge, 9, ["Quiet-X", "quiet-y"]), ["quiet-x"]);
   assert.deepEqual(fetch.calls.at(-1).body, { reviewers: ["quiet-x"] });
+});
+
+test("network failures: GET retried, a POST that may have reached GitHub is not", async () => {
+  let gets = 0;
+  let posts = 0;
+  const fetch = async (url, init = {}) => {
+    if ((init.method ?? "GET") === "GET") {
+      if (++gets < 3) throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
+      return new Response("[]", { status: 200 });
+    }
+    posts++;
+    throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
+  };
+  const forge = createGithub({ repo: "o/r", env: { GH_TOKEN: "t" }, fetch, retryDelayMs: 1 });
+  assert.deepEqual(await gh.issuesWithLabel(forge, "x"), []);
+  assert.equal(gets, 3);
+  await assert.rejects(gh.comment(forge, 1, "b"), /fetch failed/);
+  assert.equal(posts, 1);
+});
+
+test("a POST whose connection was never made is retried", async () => {
+  let posts = 0;
+  const fetch = async () => {
+    if (++posts < 2) throw new TypeError("fetch failed", { cause: { code: "ENOTFOUND" } });
+    return new Response(JSON.stringify({ number: 5 }), { status: 201 });
+  };
+  const forge = createGithub({ repo: "o/r", env: { GH_TOKEN: "t" }, fetch, retryDelayMs: 1 });
+  assert.equal(await gh.createIssue(forge, { title: "t", body: "b" }), 5);
+  assert.equal(posts, 2);
 });

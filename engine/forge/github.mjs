@@ -134,7 +134,7 @@ export const githubQueueOps = Object.freeze({
   parentOf: async (forge, sha) => (await forge.rest.get(`${repoPath(forge)}/commits/${sha}`)).parents?.[0]?.sha ?? null,
 });
 
-export function createGithub({ repo, env = process.env, fetch: fetchImpl = globalThis.fetch } = {}) {
+export function createGithub({ repo, env = process.env, fetch: fetchImpl = globalThis.fetch, retryDelayMs = 1500 } = {}) {
   const API = env.GITHUB_API_URL || "https://api.github.com";
   const { owner, name } = splitRepo(repo ?? env.GITHUB_REPOSITORY);
   const full = `${owner}/${name}`;
@@ -146,8 +146,27 @@ export function createGithub({ repo, env = process.env, fetch: fetchImpl = globa
     return tk;
   };
 
+  /**
+   * fetch with retries on network failures (no HTTP response at all): GET / PUT / PATCH / DELETE are repeated twice;
+   * a POST only when the connection was never made (it may otherwise have reached GitHub, and a comment or an issue
+   * would be created twice).
+   */
+  async function fetchRetry(url, init) {
+    const NOT_CONNECTED = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "ENETUNREACH", "EHOSTUNREACH"]);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fetchImpl(url, init);
+      } catch (e) {
+        const code = e?.cause?.code ?? e?.code;
+        const retryable = init.method !== "POST" || NOT_CONNECTED.has(code);
+        if (attempt >= 2 || !retryable) throw e;
+        await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+      }
+    }
+  }
+
   async function request(method, url, body) {
-    const res = await fetchImpl(url.startsWith("http") ? url : `${API}${url}`, {
+    const res = await fetchRetry(url.startsWith("http") ? url : `${API}${url}`, {
       method,
       headers: {
         authorization: `Bearer ${token()}`,

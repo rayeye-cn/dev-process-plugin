@@ -99,6 +99,7 @@ export function buildAgentPrompt({ lang, instructions, issue, context }) {
     t(lang, "agent.prompt.rules", context),
     "",
     t(lang, context.triage ? "agent.prompt.triage" : "agent.prompt.task", context),
+    ...(context.continued ? ["", t(lang, "agent.prompt.continue")] : []),
     "",
     t(lang, "agent.prompt.issueHeader", { number: issue.number }),
     asCodeBlock(`${issue.title}\n\n${issue.body ?? ""}`),
