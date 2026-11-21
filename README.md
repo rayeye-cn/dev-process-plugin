@@ -4,7 +4,7 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 
 中文说明见 [README.zh.md](README.zh.md).
 
-> **Status: pre-release (M5).** Installs on GitHub (GitHub Copilot or Claude as the reviewer) and on GitLab 17.11+ (Claude), both with the built-in merge queue. GitHub is partly validated on a sandbox repository (M4: the Claude-review scenarios wait for an API key); GitLab is unit-tested against the documented API and waits for its end-to-end run (M6). The native merge queue and GitLab merge trains come later.
+> **Status: 1.0.0.** Installs on GitHub (GitHub Copilot or Claude as the reviewer) and on GitLab 17.11+ (Claude), both with the built-in merge queue. Some paths have not run end to end yet, notably a real Claude review: see [What has been validated](#what-has-been-validated).
 
 ## What it installs
 
@@ -13,7 +13,7 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 | Before the PR | `CLAUDE.md` conventions: run the checks and show output, `/code-review` (and `/security-review` on sensitive paths), keep PRs small, "you land it, you own it" |
 | AI review on every PR/MR | GitHub Copilot code review **or** Claude (`anthropics/claude-code-action` on GitHub, a Claude CLI job on GitLab), steered by repo instruction files |
 | Risk gate | A required check that sets a risk tier from changed paths (an AI classifier may only raise it) and requires: a real AI review of the head commit, author sign-off, N human approvals on the head by tier, every AI thread answered (`fixed:` / `wrong:` / `intended:` / `wontfix:`) |
-| Merge queue | GitHub native merge queue where available, GitLab merge trains on Premium+, otherwise a self-built queue that re-runs CI on the updated branch before merging |
+| Merge queue | A built-in queue that re-tests each change on top of the latest default branch before merging (GitHub's native merge queue and GitLab merge trains are planned) |
 | Protection | Ruleset / protected branch applied **last**, after a test PR passes |
 | CI | Fast checks on hosted runners, full tests optionally on self-hosted runners, non-fork only |
 | Loop | Nightly AI sweep that files issues, a review eval that replays past bugs, weekly metrics |
@@ -35,16 +35,30 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 
 Then, in the repository to set up: `/dev-process:init`.
 
+## What has been validated
+
+Every path has unit tests against recorded API shapes (577 tests). End to end:
+
+- **GitLab** (CE 19.6.1, Free, in Docker): the setup (`apply-protection`, idempotent), webhook → trigger → gate, the review job's notice without a key, posting a review (a diff thread on the changed line, the summary with the marker, quick actions in the text not run), waiver and approval, sign-off, a `wrong:` reply then "resolve", the queue (candidate from GitLab's merge ref, CI as the bot, merge by sha), a semantic conflict ejected by the queue, a stacked MR retargeted by GitLab, a process upgrade MR, weekly metrics, `doctor --remote`. Details: [docs/design/gitlab.md](docs/design/gitlab.md).
+- **GitHub** (private sandbox, Team plan): init PR rendered and merged, the ruleset applied, the no-key notice quoted by the gate, the queue waiting on an unsatisfied gate, a retarget re-running the Claude review job and moving the tier label.
+
+Not run yet:
+
+- A real Claude review, the AI classifier, the nightly sweep and the review eval (both forges): no Anthropic API key in the test setups.
+- GitHub: a PR passing the gate and merged by the queue (needs a real review and a second account); the Copilot path; the Claude GitHub App's behavior.
+- GitLab: versions other than 19.6.1 (17.11's `TRIGGER_PAYLOAD` restriction in particular), Premium and Ultimate (recorded API shapes only), an instance whose default language is not English.
+
 ## Roadmap
 
 - [x] M0 Repository skeleton, manifests, CI
 - [x] M1 Engine extracted from the reference implementation (GitHub, Copilot, Chinese)
 - [x] M2 English catalog, bilingual templates, deterministic renderer, `init`, `doctor` and `upgrade` skills (GitHub + Copilot + built-in queue)
 - [x] M3 Claude reviewer on GitHub (review workflow, reviewer adapter, notices)
-- [ ] M4 End-to-end validation in a sandbox GitHub repository
+- [~] M4 End-to-end validation in a sandbox GitHub repository (partial, see above)
 - [x] M5 GitLab, all tiers (forge adapter, bot pipelines on the default branch, Claude review job, queue, setup, doctor; review eval included)
-- [ ] M6 End-to-end validation on GitLab
-- [ ] M7 v1.0.0
+- [~] M6 End-to-end validation on GitLab (partial, see above)
+- [x] M7 v1.0.0
+- [ ] Later: the runs that need an API key; GitHub's native merge queue; GitLab merge trains and Ultimate external status checks; GitHub Enterprise Server
 
 ## Development
 

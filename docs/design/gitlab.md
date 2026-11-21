@@ -1,8 +1,8 @@
 # GitLab design (M5)
 
 GitLab self-managed 17.11+ and gitlab.com, every tier (CE, EE without a license, Premium, Ultimate). Facts marked
-**[M6]** come from the documentation or GitLab's source but have not been run on a real instance yet; the GitLab CE E2E
-(M6) checks each one.
+**[M6]** came from the documentation or GitLab's source; the E2E run on GitLab CE 19.6.1 (M6, below) checked most of
+them. What one English CE 19.6.1 instance could not check is listed under "Still unverified".
 
 ## The rule the design follows
 
@@ -21,7 +21,8 @@ branch's configuration and engine; a merge request cannot change how it is judge
 
 1. GitLab 18.1+ can give MR pipelines protected variables (`protect_merge_request_pipelines`, on by default for projects
    created on 18.1+) when the source and target branches are both protected; 17.11 may do so when a wildcard protected
-   branch matches `refs/merge-requests/…`. Doctor reports either as an error. **[M6]**
+   branch matches `refs/merge-requests/…`. Doctor reports a wildcard protected branch as an error and
+   `protect_merge_request_pipelines` as a warning (it only matters when a source branch is protected too). **[M6]**
 2. `DEV_PROCESS_TOKEN` is protected, masked and scoped to environment `dev-process-bot`; jobs that need it declare
    `environment: { name: dev-process-bot, action: access }`. Environment scope alone is not a boundary (a branch's job can
    name the environment), so the variable is also protected: branch and MR pipelines never get it.
@@ -37,7 +38,7 @@ GitLab CI runs nothing on comments or approvals. Two ways in, both into a bot pi
   events: the trigger's own pipeline would send them and start another (a loop). A passing gate on a queued MR wakes the
   queue directly; an MR pipeline finishing reaches the queue through the poll. Fast,
   but self-managed GitLab blocks webhooks to its own address by default: an admin must allow requests to the local
-  network (or allowlist the host) **[M6: does the allowlist cover the instance itself?]**.
+  network (or allowlist the host). M6 used "allow requests to the local network"; the allowlist alone was not tried.
 - **Scheduled poll** (bot-owned schedule; self-managed runs schedules every 10 minutes by default): re-judges open MRs,
   reviews heads that have neither a review nor a notice, runs the queue. Always on, also as the fallback for lost events.
 
@@ -60,7 +61,7 @@ Any Developer can post a commit status, and a status named like a job retires th
 | Who merges | the default branch is protected: push "No one", merge "Maintainer"; people are Developers; the bot is the only Maintainer and merges only through the queue after re-judging | same | same |
 | Settings | Pipelines must succeed; All threads must be resolved | + reset approvals on push, no author / committer approval, Code Owner approval | + (later) external status check |
 | Queue | self-built (`merge-queue/pr-N` from GitLab's merge ref) | self-built or merge trains | same |
-| Bypass | any human Maintainer / Owner, instance admins — doctor reports human Maintainers as errors | same | same |
+| Bypass | any human Maintainer / Owner, instance admins — doctor warns about human Maintainers / Owners (a project always has an Owner) | same | same |
 
 ## The Claude review
 
@@ -114,17 +115,30 @@ Found and fixed:
 Test-environment notes (not plugin issues): with `external_url` on `localhost`, webhooks resolve `::1`, so nginx must
 listen on IPv6 too; a runner restart orphans a running job in "canceling" (force-cancel it).
 
-## Unverified until M6
+## Checked after the M6 run (same instance, 2026-11-21)
 
-- Commit status with `ref` = source branch lands on an external / branch pipeline and leaves the MR pipeline alone.
-- `/pipelines/:id/jobs` lists builds only (no generic statuses).
-- `GET …/merge_ref` response field and parent order.
-- Webhook payload shapes (`changes.target_branch`, `changes.draft`, `changes.labels`, pipeline `source`).
-- `TRIGGER_PAYLOAD` availability with 17.11's pipeline-variable restrictions (fixed in 18.5).
-- Approval webhook actions on EE without a license.
-- Quick actions are not run inside fenced code blocks.
-- The commit statuses list without `ref` also returns statuses attached to other refs (the gate status, the classifier
-  status and the write-skipping all read through it).
-- Creating a branch at the merge-ref commit; `environment: action: access`; job timeouts above the project timeout.
+- Statuses with `ref` = source branch land on an external pipeline; `/pipelines/:id/jobs` (also with
+  `include_retried=true`) lists that pipeline's builds only: the generic statuses are not in it.
+- The commit statuses list without `ref` returns statuses on every ref (the MR pipeline's jobs on
+  `refs/merge-requests/N/head` and the bot's statuses on the source branch).
+- `merge_ref`: `commit_id`, parents [target, MR head]; a branch can be created at that commit.
+- Webhook payloads: `changes.target_branch` `{previous, current}`, `changes.labels` `{previous, current}` (label objects
+  with `title`), `changes.draft` `{previous, current}` booleans. Pipeline events are no longer subscribed, so their
+  `source` field no longer matters.
+- Quick actions inside a fenced code block are not run (a note with `/label` and `/award` in a fence kept both lines and
+  changed nothing).
+- `environment: action: access` works; a job timeout above the project timeout is kept (the queue job ran with 200 min
+  against the project's 60).
+
+## Still unverified
+
+- `TRIGGER_PAYLOAD` availability with 17.11's pipeline-variable restrictions (fixed in 18.5). M6 ran 19.6.1 only.
+- Approval webhook actions on EE without a license; Premium and Ultimate paths (approval rules, code owners, reset on
+  push) are covered by recorded API shapes only.
+- Whether the outbound allowlist alone (without "allow requests to the local network") lets a webhook call the instance's
+  own address.
 - System note texts ("changed target branch from", "approved this merge request", "…now targets the…") on an instance
   whose default language is not English.
+- Anything that needs a real Claude run: the review job's answer as the CLI prints it, the classifier, the nightly sweep
+  and the review eval (M6 ran without an Anthropic API key; the review was simulated by posting a review object through
+  `post-review`).

@@ -1,7 +1,7 @@
 {
   "name": "dev-process",
   "displayName": "开发流程（Claude Code 团队做法）",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Install a Claude-Code-team-style development and review process into a new repository: CLAUDE.md conventions, AI review (GitHub Copilot or Claude), tiered risk gate, merge queue, branch protection, CI, nightly sweep, review eval and metrics. GitHub and self-managed GitLab (all tiers), Chinese or English.",
   "author": {
     "name": "fengziadmin",
