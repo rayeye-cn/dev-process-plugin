@@ -432,6 +432,8 @@ describe("Claude on GitLab: the hint says what people can do there", async () =>
     const p = { ai: "Claude", reviewer: "claude", sha: "a".repeat(40), queueLabel: "merge-queue", staleBase: false, notice: null, ignored: null, cmd: "/waive-ai-review aaaa", extra: 1 };
     assert.match(t("en", "missing.aiReview", { ...p, pr: "MR" }), /push again/);
     assert.match(t("en", "missing.aiReview", { ...p, pr: "PR" }), /re-run the AI review job/);
+    assert.match(t("zh", "missing.aiReview", { ...p, pr: "MR" }), /再推一次提交/);
+    assert.doesNotMatch(t("zh", "missing.aiReview", { ...p, pr: "MR" }), /重跑 AI 评审作业/);
   });
 });
 

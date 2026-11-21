@@ -52,7 +52,7 @@ const zh = {
   "base.changed": (p) => `目标分支在 ${p.at} 改过：在那之前的 ${p.ai} 评审、签署、批准与豁免命令都不算`,
 
   "missing.aiReview": (p, h) =>
-    `等 ${p.ai} 评审当前提交 ${h.short(p.sha)}（${autoHint.zh[p.reviewer] ?? autoHint.zh.copilot}；${rejudgeHint.zh(p.reviewer, p.queueLabel)}）` +
+    `等 ${p.ai} 评审当前提交 ${h.short(p.sha)}（${autoHint.zh[hintKey(p)] ?? autoHint.zh.copilot}；${rejudgeHint.zh(p.reviewer, p.queueLabel)}）` +
     (p.staleBase ? staleHint.zh(p.reviewer) : "") +
     (p.notice !== null && p.notice !== undefined ? `；它在这个提交上只留了一条通知：「${p.notice || "（空正文）"}」` : "") +
     (p.ignored ? `；${h.tr(p.ignored)}` : "") +
