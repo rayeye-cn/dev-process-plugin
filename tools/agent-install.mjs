@@ -74,15 +74,48 @@ export function resolveClaude(platform, candidates, exists = existsSync, profile
 }
 
 /** The Task Scheduler definition (pure): every N minutes while the person is logged on, hidden console, one at a time. */
-export function taskXmlFor({ node, script, config, log, workdir, intervalMin = 10, start = new Date() }) {
+/**
+ * How the task starts node without a console window flashing every few minutes (pure):
+ * - "conhost": `conhost.exe --headless node …` (no window at all; needs a Windows build that knows --headless and an
+ *   interactive session) — the installer tries it on the machine first (pickLauncher);
+ * - "powershell": `powershell.exe -WindowStyle Hidden -Command & 'node' …` (works everywhere; a window may flash).
+ */
+export function taskAction(launcher, { node, script, config, log }) {
+  const dq = (x) => `"${String(x).replace(/"/g, "")}"`;
+  const sq = (x) => `'${String(x).replace(/'/g, "''")}'`;
+  if (launcher === "conhost") return { command: "conhost.exe", arguments: ["--headless", dq(node), dq(script), "--config", dq(config), "--log", dq(log)].join(" ") };
+  if (launcher === "powershell") return { command: "powershell.exe", arguments: `-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "& ${[node, script, "--config", config, "--log", log].map((a) => (a.startsWith("--") ? a : sq(a))).join(" ")}"` };
+  throw new Error(`unknown launcher ${launcher}`);
+}
+
+/** The Task Scheduler definition (pure): every N minutes while the person is logged on, one at a time. */
+export function taskXmlFor({ node, script, config, log, workdir, intervalMin = 10, start = new Date(), launcher = "conhost" }) {
   if (!Number.isInteger(intervalMin) || intervalMin < 5 || intervalMin > 120) throw new Error("interval: 5–120 minutes");
-  const q = (x) => `"${String(x).replace(/"/g, "")}"`;
   const pad = (n) => String(n).padStart(2, "0");
   const local = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}:00`;
   const tmpl = readFileSync(join(PLUGIN_ROOT, "templates/agent/dev-process-agent.task.xml.tmpl"), "utf8");
-  // conhost --headless: the console the task starts has no window (no flash every few minutes).
-  const ctx = { intervalMin, start: local, command: "conhost.exe", arguments: xml(["--headless", q(node), q(script), "--config", q(config), "--log", q(log)].join(" ")), workdir: xml(workdir) };
+  const a = taskAction(launcher, { node, script, config, log });
+  const ctx = { intervalMin, start: local, command: xml(a.command), arguments: xml(a.arguments), workdir: xml(workdir) };
   return renderTemplate(tmpl, ctx, "agent task xml");
+}
+
+/**
+ * Try the windowless launcher on this machine: a probe started through `conhost.exe --headless` must write its mark
+ * within ~10 s; otherwise fall back to PowerShell. Returns "conhost" | "powershell".
+ */
+export function pickLauncher(home, { wait = 10_000 } = {}) {
+  const dir = join(home, "launcher-probe");
+  mkdirSync(dir, { recursive: true });
+  const mark = join(dir, "ran.txt");
+  const probe = join(dir, "probe.mjs");
+  rmSync(mark, { force: true });
+  writeFileSync(probe, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(mark)}, "ok");\n`);
+  spawnSync("conhost.exe", ["--headless", process.execPath, probe], { windowsHide: true, timeout: wait });
+  const until = Date.now() + wait;
+  while (!existsSync(mark) && Date.now() < until) spawnSync(process.execPath, ["-e", "setTimeout(()=>{},250)"]);
+  const ok = existsSync(mark);
+  rmSync(dir, { recursive: true, force: true });
+  return ok ? "conhost" : "powershell";
 }
 
 /** The scheduler calls per platform (pure): `{ install, query, runNow, pause, resume, remove }` → `[cmd, args]`. */
@@ -205,7 +238,9 @@ function install(repos, { mode, intervalMin, home }) {
     writeFileSync(P.plist, plistFor({ node: process.execPath, script, config: P.config, path, intervalMin, out: join(P.logs, "agent.log"), err: join(P.logs, "agent.err.log") }));
   } else {
     // Task Scheduler reads UTF-16 task files most reliably.
-    writeFileSync(P.taskFile, Buffer.from(`﻿${taskXmlFor({ node: process.execPath, script, config: P.config, log: join(P.logs, "agent.log"), workdir: home, intervalMin })}`, "utf16le"));
+    const launcher = pickLauncher(home);
+    console.log(launcher === "conhost" ? "launcher: conhost --headless (no window)" : "launcher: hidden PowerShell (conhost --headless did not work here; a window may flash when it starts)");
+    writeFileSync(P.taskFile, Buffer.from(`\ufeff${taskXmlFor({ node: process.execPath, script, config: P.config, log: join(P.logs, "agent.log"), workdir: home, intervalMin, launcher })}`, "utf16le"));
   }
   run(...S.unload);
   const r = run(...S.install);

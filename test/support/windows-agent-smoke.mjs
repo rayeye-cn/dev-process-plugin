@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 
 import { readToken, tokenCommand } from "../../engine/cli/agent-platform.mjs";
-import { resolveClaude, schedulerCommands, TASK_NAME, taskXmlFor } from "../../tools/agent-install.mjs";
+import { pickLauncher, resolveClaude, schedulerCommands, TASK_NAME, taskAction, taskXmlFor } from "../../tools/agent-install.mjs";
 
 const work = process.argv[2];
 if (!work || process.platform !== "win32") throw new Error("usage (Windows only): windows-agent-smoke.mjs <work dir>");
@@ -44,20 +44,29 @@ const probe = join(dir, "probe.mjs");
 const mark = join(dir, "ran.txt");
 writeFileSync(probe, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(mark)}, process.argv.slice(2).join("|"));\n`);
 const taskFile = join(work, "task.xml");
-const xml = taskXmlFor({ node: process.execPath, script: probe, config: join(dir, "config.json"), log: join(dir, "agent.log"), workdir: dir, intervalMin: 10 });
-writeFileSync(taskFile, Buffer.from(`﻿${xml}`, "utf16le"));
+const launcher = pickLauncher(work);
+console.log(`launcher picked on this machine: ${launcher}`);
+const paths = { node: process.execPath, script: probe, config: join(dir, "config.json"), log: join(dir, "agent.log") };
+const xml = taskXmlFor({ ...paths, workdir: dir, intervalMin: 10, launcher });
+writeFileSync(taskFile, Buffer.from(`\ufeff${xml}`, "utf16le"));
 const S = schedulerCommands("windows", { taskFile });
 run(...S.unload);
 const reg = run(...S.install);
 ok(reg.status === 0, "task registered", reg);
 ok(run(...S.query).status === 0, "task queryable");
-// the exact action of the task, run directly
-const args = /<Arguments>(.*)<\/Arguments>/.exec(xml)[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&");
-rmSync(mark, { force: true });
-const direct = spawnSync(`conhost.exe ${args}`, { shell: true, encoding: "utf8", windowsHide: true, timeout: 60_000 });
-for (let i = 0; i < 30 && !existsSync(mark); i++) spawnSync("powershell.exe", ["-NoProfile", "-Command", "Start-Sleep -Milliseconds 500"]);
-ok(existsSync(mark), `the task's command line runs (conhost --headless, quoted paths) [exit ${direct.status}]`);
-ok(readFileSync(mark, "utf8").includes("--config"), "the runner gets its arguments");
+const waitMark = () => {
+  for (let i = 0; i < 40 && !existsSync(mark); i++) spawnSync(process.execPath, ["-e", "setTimeout(()=>{},500)"]);
+  return existsSync(mark);
+};
+// the action the task runs, started the same way (command + arguments as Task Scheduler passes them)
+for (const l of [...new Set(["powershell", launcher])]) {
+  const a = taskAction(l, paths);
+  rmSync(mark, { force: true });
+  const r = spawnSync(`${a.command} ${a.arguments}`, { shell: true, encoding: "utf8", windowsHide: true, timeout: 60_000 });
+  const ran = waitMark();
+  ok(ran, `the task's action runs with the ${l} launcher (quoted paths with a space)`, ran ? null : r);
+  ok(readFileSync(mark, "utf8").includes("--config"), `the runner gets its arguments (${l})`);
+}
 // a scheduler-started run (best effort)
 rmSync(mark, { force: true });
 run(...S.runNow);

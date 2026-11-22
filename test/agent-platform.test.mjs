@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { claudeArgs, runRepo } from "../engine/cli/agent-run.mjs";
 import { childEnv, platformOf, readToken, roleRunsHere, shellFor, tokenCommand } from "../engine/cli/agent-platform.mjs";
 import { validateTeam } from "../engine/core/team.mjs";
-import { resolveClaude, schedulerCommands, TASK_NAME, taskXmlFor } from "../tools/agent-install.mjs";
+import { resolveClaude, schedulerCommands, TASK_NAME, taskAction, taskXmlFor } from "../tools/agent-install.mjs";
 
 const team = validateTeam({
   version: 1,
@@ -124,4 +124,12 @@ test("schedulerCommands: schtasks on Windows, launchctl on macOS", () => {
   const m = schedulerCommands("mac", { plist: "/p.plist", uid: 501 });
   assert.deepEqual(m.runNow, ["launchctl", ["kickstart", "gui/501/com.dev-process.agent"]]);
   assert.throws(() => schedulerCommands("linux", {}), /macOS or Windows/);
+});
+
+test("taskAction: the PowerShell fallback quotes paths with single quotes (doubled inside)", () => {
+  const a = taskAction("powershell", { node: "C:\\Program Files\\nodejs\\node.exe", script: "C:\\Users\\o'brien\\run.mjs", config: "C:\\c.json", log: "C:\\l.log" });
+  assert.equal(a.command, "powershell.exe");
+  assert.match(a.arguments, /-WindowStyle Hidden/);
+  assert.ok(a.arguments.endsWith(`"& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\o''brien\\run.mjs' --config 'C:\\c.json' --log 'C:\\l.log'"`), a.arguments);
+  assert.match(taskXmlFor({ node: "n", script: "s", config: "c", log: "l", workdir: "w", launcher: "powershell" }), /<Command>powershell\.exe<\/Command>/);
 });
