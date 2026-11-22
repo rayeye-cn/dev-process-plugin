@@ -198,3 +198,12 @@ test("machineConfig keeps the owner's roles and model, refuses bad ones", () => 
   assert.throws(() => machineConfig({ login: "a", repos: ["o/r"], roles: [] }), /roles/);
   assert.throws(() => machineConfig({ login: "a", repos: ["o/r"], model: "opus; rm -rf" }), /model/);
 });
+
+test("taskXmlFor watch: started at the person's logon, no time limit, restarted on failure", () => {
+  const x = taskXmlFor({ node: "n", script: "s", config: "c", log: "l", workdir: "w", intervalMin: 30, watch: true, user: "PC\\dev-b" });
+  assert.match(x, /<LogonTrigger>[\s\S]*<UserId>PC\\dev-b<\/UserId>/);
+  assert.doesNotMatch(x, /TimeTrigger/);
+  assert.match(x, /<ExecutionTimeLimit>PT0S<\/ExecutionTimeLimit>/);
+  assert.match(x, /<RestartOnFailure>/);
+  assert.throws(() => taskXmlFor({ node: "n", script: "s", config: "c", log: "l", workdir: "w", watch: true }), /logon trigger/);
+});

@@ -21,7 +21,8 @@ stays the human gate. Design and the safety checks run on a Mac: `docs/design/ag
   person. Low-tier agent pull requests can be queued automatically (`autoQueueLow`); medium / high remind the author to
   sign off.
 - The project lead's machine posts a daily and a weekly report to a fixed issue.
-- The person installing chooses for their machine: repositories, which of their roles run there (`--roles`), mode,
+- The person installing chooses for their machine: repositories, the trigger (`--trigger watch` starts work within about
+  a minute of an issue becoming ready, `schedule` every N minutes), which of their roles run there (`--roles`), mode,
   interval, model (`--model`), and on Windows the unsandboxed opt-in.
 - `apply-protection` (GitHub) creates the role and status labels when the team file exists.
 - Windows: the token in a DPAPI-encrypted file, a Task Scheduler task, `claude.exe` resolution; roles without Bash by default

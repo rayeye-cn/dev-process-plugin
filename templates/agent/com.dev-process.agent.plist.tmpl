@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- dev-process role agent: runs the agent every {{ intervalMin }} minutes while you are logged in. Remove with the agent skill. -->
+<!-- dev-process role agent: {{#if watch}}watches for new work while you are logged in (a full run every {{ intervalMin }} minutes){{else}}runs the agent every {{ intervalMin }} minutes while you are logged in{{/if}}. Remove with the agent skill. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>{{ label }}</string>
@@ -15,8 +15,14 @@
   <dict>
     <key>PATH</key><string>{{ path }}</string>
   </dict>
+{{#if watch}}
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>60</integer>
+{{else}}
   <key>StartInterval</key><integer>{{ intervalSec }}</integer>
   <key>RunAtLoad</key><false/>
+{{/if}}
   <key>ProcessType</key><string>Background</string>
   <key>LowPriorityIO</key><true/>
   <key>StandardOutPath</key><string>{{ out }}</string>

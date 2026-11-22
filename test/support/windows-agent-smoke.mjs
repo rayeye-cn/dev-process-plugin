@@ -78,6 +78,16 @@ ok(run(...S.pause).status === 0, "task disabled");
 ok(run(...S.resume).status === 0, "task enabled");
 ok(run(...S.remove).status === 0, `task ${TASK_NAME} deleted`);
 
+// the watch trigger's task: started at logon, no time limit, restarted on failure — registers, and starts on demand
+const user = `${process.env.USERDOMAIN}\\${process.env.USERNAME}`;
+writeFileSync(taskFile, Buffer.from(`\ufeff${taskXmlFor({ ...paths, workdir: dir, intervalMin: 30, launcher, watch: true, user })}`, "utf16le"));
+const regW = run(...S.install);
+ok(regW.status === 0, "watch task registered (logon trigger, no time limit, restart on failure)", regW);
+rmSync(mark, { force: true });
+run(...S.runNow);
+console.log(waitMark() ? "ok: the watch task starts on demand" : "note: the watch task did not start here (no interactive session?)");
+ok(run(...S.remove).status === 0, "watch task deleted");
+
 // 3. Claude Code
 const where = run("where.exe", ["claude"]);
 const claude = resolveClaude("windows", where.status === 0 ? where.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean) : []);

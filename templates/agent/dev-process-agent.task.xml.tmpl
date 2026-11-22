@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>dev-process role agent: runs every {{ intervalMin }} minutes while you are logged in. Remove with the agent skill.</Description>
+    <Description>dev-process role agent: {{#if watch}}watches for new work while you are logged in (a full run every {{ intervalMin }} minutes){{else}}runs every {{ intervalMin }} minutes while you are logged in{{/if}}. Remove with the agent skill.</Description>
   </RegistrationInfo>
   <Triggers>
+{{#if watch}}
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{{ user }}</UserId>
+    </LogonTrigger>
+{{else}}
     <TimeTrigger>
       <Repetition>
         <Interval>PT{{ intervalMin }}M</Interval>
@@ -12,6 +18,7 @@
       <StartBoundary>{{ start }}</StartBoundary>
       <Enabled>true</Enabled>
     </TimeTrigger>
+{{/if}}
   </Triggers>
   <Principals>
     <Principal id="Author">
@@ -35,7 +42,15 @@
     <Hidden>false</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <WakeToRun>false</WakeToRun>
+{{#if watch}}
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+{{else}}
     <ExecutionTimeLimit>PT3H</ExecutionTimeLimit>
+{{/if}}
     <Priority>7</Priority>
   </Settings>
   <Actions Context="Author">

@@ -15,8 +15,21 @@ test("plistFor: a LaunchAgent that runs the copied engine every N minutes, value
 });
 
 test("machineConfig: repos as owner/name, comment mode by default, the keychain service", () => {
-  assert.deepEqual(machineConfig({ login: "dev-b", repos: ["o/r", "o/r"], claude: "/bin/claude" }), { login: "dev-b", repos: ["o/r"], mode: "comment", keychainService: "dev-process-agent-claude", claude: "/bin/claude" });
+  assert.deepEqual(machineConfig({ login: "dev-b", repos: ["o/r", "o/r"], claude: "/bin/claude" }), { login: "dev-b", repos: ["o/r"], mode: "comment", keychainService: "dev-process-agent-claude", claude: "/bin/claude", trigger: "schedule", intervalMin: 10 });
+  const w = machineConfig({ login: "dev-b", repos: ["o/r"], claude: "c", trigger: "watch", intervalMin: 30 });
+  assert.equal(w.trigger, "watch");
+  assert.equal(w.fallbackMin, 30);
+  assert.equal(w.intervalMin, undefined);
+  assert.throws(() => machineConfig({ login: "dev-b", repos: ["o/r"], trigger: "webhook" }), /trigger/);
   assert.throws(() => machineConfig({ login: "dev-b", repos: ["https://github.com/o/r"] }), /repos/);
   assert.throws(() => machineConfig({ login: "dev-b", repos: ["o/r"], mode: "yolo" }), /mode/);
   assert.throws(() => machineConfig({ repos: ["o/r"] }), /login/);
+});
+
+test("plistFor watch: kept alive and started at load, no interval timer", () => {
+  const p = plistFor({ node: "n", script: "/e/cli/agent-watch.mjs", config: "c", path: "p", intervalMin: 30, out: "o", err: "e", watch: true });
+  assert.match(p, /<key>KeepAlive<\/key><true\/>/);
+  assert.match(p, /<key>RunAtLoad<\/key><true\/>/);
+  assert.doesNotMatch(p, /StartInterval/);
+  assert.match(p, /full run every 30 minutes/);
 });

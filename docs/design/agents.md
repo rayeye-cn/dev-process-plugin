@@ -126,9 +126,19 @@ for a macOS machine (`check` says so; the runner logs and skips its issues). The
   authentication. Not verified: a real Claude run with a token on a colleague's Windows machine; `conhost --headless` on
   an interactive desktop (the runner had none and fell back to PowerShell).
 
+## Triggers
+
+- `schedule`: the scheduler starts a run every N minutes (macOS: `StartInterval`; Windows: a repeating time trigger).
+- `watch`: `engine/cli/agent-watch.mjs` stays running (macOS: `KeepAlive` + `RunAtLoad`; Windows: a logon trigger, no
+  time limit, restart on failure, started at install). Personal computers cannot receive webhooks, so it polls each
+  repository's ready-issue list with `If-None-Match` every `X-Poll-Interval` (at least 60 s): a 304 costs no rate limit
+  (checked: the remaining count stays the same) and starts nothing; a changed list starts a run at once. A full run
+  every N minutes covers what the list does not show (the agent's pull requests, issues to close, missed changes).
+  Verified on this Mac (the watcher stays up and runs at start); the Windows task definition is in the CI smoke test.
+
 ## The machine owner's choices
 
-`/dev-process:agent` asks the person installing, for their own machine: repositories, which of their roles run here
+`/dev-process:agent` asks the person installing, for their own machine: repositories, the trigger (watch / schedule), which of their roles run here
 (`--roles`, default all — the triage role's role-less issues follow that choice), mode (comment / full), interval,
 model (`--model`, their own plan pays; default the role's model, else the account default), and on Windows whether
 Bash roles may run without the sandbox (`--unsandboxed`, default no). The team file still decides who has which role

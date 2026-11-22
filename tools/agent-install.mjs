@@ -6,7 +6,8 @@
  *   node agent-install.mjs check   --repo owner/name [--repo …]
  *   node agent-install.mjs store-token      (the token copied from `claude setup-token`, read from the clipboard)
  *   node agent-install.mjs install --repo owner/name [--repo …] [--mode comment|full] [--interval 10]
- *                                  [--roles a,b] [--model sonnet|opus|…] [--unsandboxed]
+ *                                  [--roles a,b] [--model sonnet|opus|…] [--trigger schedule|watch] [--unsandboxed]
+ *     (--trigger watch: start a run as soon as the work list changes; --interval is then the fallback full run)
  *     (--roles: which of your roles this machine runs, default all; --model: the model your own plan pays for)
  *     (--unsandboxed, native Windows only: Bash roles run without the sandbox; the person must accept that risk first)
  *   node agent-install.mjs status | run-now | pause | resume | uninstall | forget-token
@@ -34,10 +35,10 @@ const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** The LaunchAgent for these paths (pure). Every value is XML-escaped. */
-export function plistFor({ node, script, config, path, intervalMin = 10, out, err }) {
+export function plistFor({ node, script, config, path, intervalMin = 10, out, err, watch = false }) {
   if (!Number.isInteger(intervalMin) || intervalMin < 5 || intervalMin > 120) throw new Error("interval: 5–120 minutes");
   const tmpl = readFileSync(join(PLUGIN_ROOT, "templates/agent/com.dev-process.agent.plist.tmpl"), "utf8");
-  const ctx = { label: LABEL, node: xml(node), script: xml(script), config: xml(config), path: xml(path), intervalMin, intervalSec: intervalMin * 60, out: xml(out), err: xml(err) };
+  const ctx = { label: LABEL, node: xml(node), script: xml(script), config: xml(config), path: xml(path), intervalMin, intervalSec: intervalMin * 60, out: xml(out), err: xml(err), watch };
   return renderTemplate(tmpl, ctx, "agent plist");
 }
 
@@ -47,7 +48,8 @@ export function plistFor({ node, script, config, path, intervalMin = 10, out, er
  * (`roles`, all when not given), mode, a model for their own plan (`model`, the role's / account default when not
  * given), the unsandboxed opt-in (Windows) — plus the tools' paths.
  */
-export function machineConfig({ login, repos, mode = "comment", claude, unsandboxed = false, gitBash = null, roles = null, model = null }) {
+export function machineConfig({ login, repos, mode = "comment", claude, unsandboxed = false, gitBash = null, roles = null, model = null, trigger = "schedule", intervalMin = 10 }) {
+  if (!["schedule", "watch"].includes(trigger)) throw new Error('trigger: "schedule" or "watch"');
   if (!login) throw new Error("login: gh must be logged in");
   if (!Array.isArray(repos) || !repos.length || repos.some((r) => !REPO.test(r))) throw new Error("repos: owner/name, at least one");
   if (!["comment", "full"].includes(mode)) throw new Error('mode: "comment" or "full"');
@@ -59,6 +61,9 @@ export function machineConfig({ login, repos, mode = "comment", claude, unsandbo
     mode,
     keychainService: "dev-process-agent-claude",
     claude,
+    trigger,
+    // schedule: a run every intervalMin; watch: a run as soon as the work list changes, and a full run every intervalMin
+    ...(trigger === "watch" ? { fallbackMin: intervalMin } : { intervalMin }),
     ...(roles ? { roles: [...new Set(roles)] } : {}),
     ...(model ? { model } : {}),
     ...(unsandboxed ? { unsandboxed: true } : {}),
@@ -120,13 +125,14 @@ export function taskAction(launcher, { node, script, config, log }) {
 }
 
 /** The Task Scheduler definition (pure): every N minutes while the person is logged on, one at a time. */
-export function taskXmlFor({ node, script, config, log, workdir, intervalMin = 10, start = new Date(), launcher = "conhost" }) {
+export function taskXmlFor({ node, script, config, log, workdir, intervalMin = 10, start = new Date(), launcher = "conhost", watch = false, user = "" }) {
+  if (watch && !user) throw new Error("watch: the Windows user (DOMAIN\\name) is needed for the logon trigger");
   if (!Number.isInteger(intervalMin) || intervalMin < 5 || intervalMin > 120) throw new Error("interval: 5–120 minutes");
   const pad = (n) => String(n).padStart(2, "0");
   const local = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}:00`;
   const tmpl = readFileSync(join(PLUGIN_ROOT, "templates/agent/dev-process-agent.task.xml.tmpl"), "utf8");
   const a = taskAction(launcher, { node, script, config, log });
-  const ctx = { intervalMin, start: local, command: xml(a.command), arguments: xml(a.arguments), workdir: xml(workdir) };
+  const ctx = { intervalMin, start: local, command: xml(a.command), arguments: xml(a.arguments), workdir: xml(workdir), watch, user: xml(user) };
   return renderTemplate(tmpl, ctx, "agent task xml");
 }
 
@@ -251,7 +257,8 @@ function storeToken(home) {
   console.log(`token stored (${token.length} characters). Copy something else now to clear the clipboard.`);
 }
 
-function install(repos, { mode, intervalMin, home, unsandboxed = false, roles = null, model = null }) {
+function install(repos, { mode, intervalMin, home, unsandboxed = false, roles = null, model = null, trigger = "schedule" }) {
+  const watch = trigger === "watch";
   if (unsandboxed && PLATFORM !== "windows") throw new Error("--unsandboxed is only for native Windows (macOS has the sandbox)");
   if (unsandboxed) console.log("WARNING: Bash roles will run WITHOUT the sandbox on this machine: commands and test scripts the agent edits run as you, can read your credentials and reach the network. Every PR the agent opens says so.");
   const c = check(repos, { home, unsandboxed });
@@ -268,23 +275,25 @@ function install(repos, { mode, intervalMin, home, unsandboxed = false, roles = 
   mkdirSync(P.logs, { recursive: true });
   const gitBash = PLATFORM === "windows" ? gitBashFrom(whichAll("git")) : null;
   if (roles) for (const r of roles) if (!c.roles.includes(r)) throw new Error(`--roles: ${r} is not one of your roles (${c.roles.join(", ")})`);
-  writeFileSync(P.config, `${JSON.stringify(machineConfig({ login: c.login, repos, mode, claude: c.claude, unsandboxed, gitBash, roles, model }), null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(P.config, `${JSON.stringify(machineConfig({ login: c.login, repos, mode, claude: c.claude, unsandboxed, gitBash, roles, model, trigger, intervalMin }), null, 2)}\n`, { mode: 0o600 });
   const S = schedulerCommands(PLATFORM, P);
-  const script = join(engine, "cli", "agent-run.mjs");
+  const script = join(engine, "cli", watch ? "agent-watch.mjs" : "agent-run.mjs");
   if (PLATFORM === "mac") {
     const path = [...new Set([dirname(process.execPath), dirname(c.claude), dirname(which("gh")), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"])].join(":");
     mkdirSync(dirname(P.plist), { recursive: true });
-    writeFileSync(P.plist, plistFor({ node: process.execPath, script, config: P.config, path, intervalMin, out: join(P.logs, "agent.log"), err: join(P.logs, "agent.err.log") }));
+    writeFileSync(P.plist, plistFor({ node: process.execPath, script, config: P.config, path, intervalMin, out: join(P.logs, "agent.log"), err: join(P.logs, "agent.err.log"), watch }));
   } else {
     // Task Scheduler reads UTF-16 task files most reliably.
     const launcher = pickLauncher(home);
     console.log(launcher === "conhost" ? "launcher: conhost --headless (no window)" : "launcher: hidden PowerShell (conhost --headless did not work here; a window may flash when it starts)");
-    writeFileSync(P.taskFile, Buffer.from(`\ufeff${taskXmlFor({ node: process.execPath, script, config: P.config, log: join(P.logs, "agent.log"), workdir: home, intervalMin, launcher })}`, "utf16le"));
+    writeFileSync(P.taskFile, Buffer.from(`\ufeff${taskXmlFor({ node: process.execPath, script, config: P.config, log: join(P.logs, "agent.log"), workdir: home, intervalMin, launcher, watch, user: `${process.env.USERDOMAIN ?? ""}\\${process.env.USERNAME ?? ""}` })}`, "utf16le"));
   }
   run(...S.unload);
   const r = run(...S.install);
   if (r.status !== 0) throw new Error(`${S.install[0]}: ${(r.stderr || r.stdout).trim()}`);
-  console.log(`installed: ${PLATFORM === "mac" ? LABEL : TASK_NAME} every ${intervalMin} min, mode ${mode}, repos ${repos.join(", ")}, roles ${roles ? roles.join(", ") : `all of yours (${c.roles.join(", ")})`}, model ${model ?? "the team's / account default"}${unsandboxed ? ", UNSANDBOXED" : ""}`);
+  // A watcher starts now (macOS: RunAtLoad does it; Windows: the logon trigger would wait for the next logon).
+  if (watch && PLATFORM === "windows") run(...S.runNow);
+  console.log(`installed: ${PLATFORM === "mac" ? LABEL : TASK_NAME} ${watch ? `watching (full run every ${intervalMin} min)` : `every ${intervalMin} min`}, mode ${mode}, repos ${repos.join(", ")}, roles ${roles ? roles.join(", ") : `all of yours (${c.roles.join(", ")})`}, model ${model ?? "the team's / account default"}${unsandboxed ? ", UNSANDBOXED" : ""}`);
   console.log(`engine ${engine}; logs ${P.logs}`);
 }
 
@@ -310,6 +319,7 @@ async function main(argv = process.argv.slice(2)) {
     else if (rest[i] === "--unsandboxed") opts.unsandboxed = true;
     else if (rest[i] === "--roles") opts.roles = rest[++i].split(",").map((x) => x.trim()).filter(Boolean);
     else if (rest[i] === "--model") opts.model = rest[++i];
+    else if (rest[i] === "--trigger") opts.trigger = rest[++i];
     else throw new Error(`unknown argument ${rest[i]}`);
   }
   const P = paths(opts.home);
