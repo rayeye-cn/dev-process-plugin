@@ -11,7 +11,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { readToken, tokenCommand } from "../../engine/cli/agent-platform.mjs";
+import { childEnv, readToken, tokenCommand } from "../../engine/cli/agent-platform.mjs";
+import { claudeArgs } from "../../engine/cli/agent-run.mjs";
+import { validateTeam } from "../../engine/core/team.mjs";
 import { pickLauncher, resolveClaude, schedulerCommands, TASK_NAME, taskAction, taskXmlFor } from "../../tools/agent-install.mjs";
 
 const work = process.argv[2];
@@ -82,4 +84,15 @@ const claude = resolveClaude("windows", where.status === 0 ? where.stdout.split(
 ok(Boolean(claude), `claude executable resolved (${claude})`);
 const v = spawnSync(claude, ["--version"], { encoding: "utf8", windowsHide: true });
 ok(v.status === 0, `claude --version runs without a shell (${(v.stdout || v.stderr).trim()})`);
+// the production arguments of a role without Bash (no sandbox block), through Windows command-line quoting, with no
+// credentials: Claude Code must get as far as authentication (a quoting problem would show as a bad option or JSON).
+const team = validateTeam({ version: 1, people: [{ login: "ui-d", roles: ["ui"] }], roles: { ui: { instructions: "u.md", paths: ["design/**"], tools: ["Read", "Grep", "Glob", "Edit", "Write"] } } });
+const cfg = join(work, "claude-config");
+mkdirSync(cfg, { recursive: true });
+const env = childEnv("windows", { configDir: cfg, token: "" });
+delete env.CLAUDE_CODE_OAUTH_TOKEN;
+const p = spawnSync(claude, claudeArgs(team, "ui", { allowRead: [dir], sandbox: false }), { cwd: dir, input: "Say hello.", encoding: "utf8", windowsHide: true, env, timeout: 120_000 });
+const said = `${p.stdout}\n${p.stderr}`;
+console.log(`claude -p without credentials: exit ${p.status}: ${said.replace(/\s+/g, " ").slice(0, 300)}`);
+ok(!/unknown option|invalid json|unexpected token|is not valid json|error: option/i.test(said), "the production arguments parse on Windows (no option or JSON error)");
 console.log("windows smoke: all checks passed");
