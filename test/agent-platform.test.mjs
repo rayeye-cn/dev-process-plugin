@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { claudeArgs, runRepo } from "../engine/cli/agent-run.mjs";
 import { childEnv, platformOf, readToken, roleRunsHere, shellFor, tokenCommand } from "../engine/cli/agent-platform.mjs";
 import { validateTeam } from "../engine/core/team.mjs";
-import { resolveClaude, schedulerCommands, TASK_NAME, taskAction, taskXmlFor } from "../tools/agent-install.mjs";
+import { gitBashFrom, machineConfig, resolveClaude, schedulerCommands, TASK_NAME, taskAction, taskXmlFor } from "../tools/agent-install.mjs";
 
 const team = validateTeam({
   version: 1,
@@ -132,4 +132,33 @@ test("taskAction: the PowerShell fallback quotes paths with single quotes (doubl
   assert.match(a.arguments, /-WindowStyle Hidden/);
   assert.ok(a.arguments.endsWith(`"& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\o''brien\\run.mjs' --config 'C:\\c.json' --log 'C:\\l.log'"`), a.arguments);
   assert.match(taskXmlFor({ node: "n", script: "s", config: "c", log: "l", workdir: "w", launcher: "powershell" }), /<Command>powershell\.exe<\/Command>/);
+});
+
+test("unsandboxed (Windows, the owner's opt-in): a Bash role runs without a sandbox block; the PR says so", async () => {
+  const a = claudeArgs(team, "dev", { sandbox: false, unsandboxed: true });
+  const s = JSON.parse(a[a.indexOf("--settings") + 1]);
+  assert.equal(s.sandbox, undefined);
+  assert.ok(a.includes("Bash(npm test)"));
+  assert.ok(s.permissions.deny.includes("Bash(gh *)"));
+  assert.equal(roleRunsHere(team, "dev", { sandbox: false || true }), true);
+  // the PR footer warns reviewers
+  const issues = [{ number: 6, title: "t", body: "", state: "open", isPull: false, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] }];
+  const writes = [];
+  const ops = new Proxy(
+    { issuesWithLabel: async (l) => issues.filter((i) => i.labels.includes(l)), labeledBy: async () => "dev-b", agentPulls: async () => [], issueComments: async () => [], createPull: async (o) => (writes.push(o), { number: 9 }) },
+    { get: (o, k) => o[k] ?? (async () => {}) },
+  );
+  const work = { readDefault: async () => "", prepare: async () => ({ dir: "/w", branch: "agent/dev/6-R", base: null }), setup: async () => ({ ok: true }), changedFiles: async () => ["src/a.ts"], commitAndPush: async () => {}, cleanup: async () => {} };
+  await runRepo({ team, login: "dev-b", base: "main", mode: "full", run: "R", ops, work, claude: async () => JSON.stringify({ structured_output: { status: "done", summary: "s", next: "done", pr: { title: "t", body: "b" } } }), canRun: () => true, unsandboxed: true });
+  assert.match(writes[0].body, /没有沙箱/);
+});
+
+test("machineConfig keeps the unsandboxed opt-in and Git Bash; gitBashFrom finds bash.exe next to git", () => {
+  assert.deepEqual(machineConfig({ login: "dev-b", repos: ["o/r"], claude: "c", unsandboxed: true, gitBash: "C:\\Git\\bin\\bash.exe" }).unsandboxed, true);
+  assert.equal(machineConfig({ login: "dev-b", repos: ["o/r"], claude: "c" }).unsandboxed, undefined);
+  assert.match(gitBashFrom(["C:\\Program Files\\Git\\cmd\\git.exe"], (p) => /Git[\\/]bin[\\/]bash\.exe$/.test(p)), /bin.bash\.exe$/);
+  assert.equal(gitBashFrom(["C:\\x\\git.exe"], () => false), null);
+  const env = childEnv("windows", { base: { PATH: "p" }, configDir: "c", token: "t", gitBash: "C:\\Git\\bin\\bash.exe" });
+  assert.equal(env.CLAUDE_CODE_GIT_BASH_PATH, "C:\\Git\\bin\\bash.exe");
+  assert.equal(env.npm_config_script_shell, "C:\\Git\\bin\\bash.exe");
 });

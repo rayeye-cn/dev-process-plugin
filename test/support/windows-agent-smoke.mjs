@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { childEnv, readToken, tokenCommand } from "../../engine/cli/agent-platform.mjs";
 import { claudeArgs } from "../../engine/cli/agent-run.mjs";
 import { validateTeam } from "../../engine/core/team.mjs";
-import { pickLauncher, resolveClaude, schedulerCommands, TASK_NAME, taskAction, taskXmlFor } from "../../tools/agent-install.mjs";
+import { gitBashFrom, pickLauncher, resolveClaude, schedulerCommands, TASK_NAME, taskAction, taskXmlFor } from "../../tools/agent-install.mjs";
 
 const work = process.argv[2];
 if (!work || process.platform !== "win32") throw new Error("usage (Windows only): windows-agent-smoke.mjs <work dir>");
@@ -95,4 +95,15 @@ const p = spawnSync(claude, claudeArgs(team, "ui", { allowRead: [dir], sandbox: 
 const said = `${p.stdout}\n${p.stderr}`;
 console.log(`claude -p without credentials: exit ${p.status}: ${said.replace(/\s+/g, " ").slice(0, 300)}`);
 ok(!/unknown option|invalid json|unexpected token|is not valid json|error: option/i.test(said), "the production arguments parse on Windows (no option or JSON error)");
+// a Bash role with the owner's unsandboxed opt-in, and Git Bash for the Bash tool and npm scripts
+const teamDev = validateTeam({ version: 1, people: [{ login: "dev-b", roles: ["dev"] }], roles: { dev: { instructions: "d.md", paths: ["**"], tools: ["Read", "Grep", "Glob", "Edit", "Write", "Bash"], allow: ["Bash(npm test -- *)"] } } });
+const gitPaths = run("where.exe", ["git"]).stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+const gitBash = gitBashFrom(gitPaths);
+ok(Boolean(gitBash), `Git Bash found (${gitBash})`);
+const envDev = childEnv("windows", { configDir: cfg, token: "", gitBash });
+delete envDev.CLAUDE_CODE_OAUTH_TOKEN;
+const pd = spawnSync(claude, claudeArgs(teamDev, "dev", { allowRead: [dir], sandbox: false, unsandboxed: true }), { cwd: dir, input: "Say hello.", encoding: "utf8", windowsHide: true, env: envDev, timeout: 120_000 });
+const saidDev = `${pd.stdout}\n${pd.stderr}`;
+console.log(`claude -p (unsandboxed Bash role) without credentials: exit ${pd.status}: ${saidDev.replace(/\s+/g, " ").slice(0, 200)}`);
+ok(!/unknown option|invalid json|unexpected token|is not valid json|error: option|sandbox/i.test(saidDev), "the unsandboxed Bash role's arguments parse on Windows");
 console.log("windows smoke: all checks passed");

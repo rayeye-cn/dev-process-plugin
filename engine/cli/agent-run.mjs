@@ -38,10 +38,12 @@ export const CREDENTIAL_PATHS = Object.freeze(["~/.config/gh", "~/.ssh", "~/Libr
  * The Claude command for a role (pure): restricted mode (no settings files, file tools confined to the worktree, Bash
  * only when the role names it), dontAsk with the role's rules, a sandbox that cannot be left, structured output.
  */
-export function claudeArgs(team, role, { allowRead = [], schema = AGENT_RESULT_SCHEMA, sandbox = true } = {}) {
+export function claudeArgs(team, role, { allowRead = [], schema = AGENT_RESULT_SCHEMA, sandbox = true, unsandboxed = false } = {}) {
   const r = team.roles[role];
   const fileTools = r.tools.filter((x) => x !== "Bash");
-  if (!sandbox && r.tools.includes("Bash")) throw new Error(`role ${role} uses Bash, which needs the sandbox (not available on this machine)`);
+  // A role with Bash on a machine without the sandbox runs only when the person turned that on for this machine
+  // (machine config `unsandboxed`, set at install after they accepted the risk).
+  if (!sandbox && r.tools.includes("Bash") && !unsandboxed) throw new Error(`role ${role} uses Bash, which needs the sandbox (not available on this machine)`);
   const settings = {
     // Only Bash runs inside the sandbox; a role without Bash has nothing for it to contain (file tools are confined by
     // --restricted), so a machine without the sandbox (native Windows) leaves it out instead of failing to start.
@@ -91,7 +93,7 @@ const short = (s) => String(s).slice(0, 7);
  *               commitAndPush(dir, branch, message), cleanup(dir, branch), readDefault(path) → text }`
  * @param claude `(dir, prompt, role) → raw JSON text`
  */
-export async function runRepo({ team, login, base, ops, work, claude, mode = "comment", run, secrets = [], log = () => {}, canRun = () => true }) {
+export async function runRepo({ team, login, base, ops, work, claude, mode = "comment", run, secrets = [], log = () => {}, canRun = () => true, unsandboxed = false }) {
   const lang = team.language;
   const L = team.labels;
   const say = (code, params) => safeLines(t(lang, code, params));
@@ -258,6 +260,7 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
         result.pr?.verification ? clean(result.pr.verification) : say("agent.pr.noVerification"),
         "",
         say("agent.pr.footer", { role, run }),
+        ...(unsandboxed && team.roles[role].tools.includes("Bash") ? ["", say("agent.pr.unsandboxed")] : []),
         "",
         marker({ run, role, issue: issue.number }),
         // The repository's own PR template follows, for the author to complete (risk, recovery, sign-off).
@@ -498,16 +501,16 @@ function machineWork({ repo, base, home, platform = platformOf() }) {
   };
 }
 
-function machineClaude({ team, claudeBin, token, home, clone, platform = platformOf() }) {
+function machineClaude({ team, claudeBin, token, home, clone, platform = platformOf(), unsandboxed = false, gitBash = null }) {
   const cfg = join(home, "claude-config");
   mkdirSync(cfg, { recursive: true });
   return async (dir, prompt, role) => {
-    const r = await runAsync(claudeBin, claudeArgs(team, role, { allowRead: [dir, clone], sandbox: platform !== "windows" }), {
+    const r = await runAsync(claudeBin, claudeArgs(team, role, { allowRead: [dir, clone], sandbox: platform !== "windows", unsandboxed }), {
       cwd: dir,
       input: prompt,
       timeoutMs: 90 * 60_000,
       // A clean environment: no GitHub token, no API key (it would win over the OAuth token), the agent's own config dir.
-      env: childEnv(platform, { configDir: cfg, token }),
+      env: childEnv(platform, { configDir: cfg, token, gitBash }),
     });
     return r.stdout ?? "";
   };
@@ -565,7 +568,10 @@ async function main(argv = process.argv.slice(2)) {
     if (logFile) appendFileSync(logFile, `${line}\n`);
   };
   const platform = platformOf();
+  // Set only at install, by the person, after the warning: Bash roles run without the sandbox on this machine.
+  const unsandboxed = platform === "windows" && config.unsandboxed === true;
   try {
+    if (unsandboxed) logLine("warning: this machine runs Bash roles WITHOUT the sandbox (machine config unsandboxed)");
     const ghToken = sh("gh", ["auth", "token"]);
     const token = readToken(platform, (cmd, a, o) => spawnSyncOut(cmd, a, o), { home, user: process.env.USER ?? process.env.USERNAME ?? "" });
     if (!token) throw new Error("no Claude token stored for the agent on this machine (run the agent skill's setup)");
@@ -588,8 +594,9 @@ async function main(argv = process.argv.slice(2)) {
         base,
         ops: boundOps(forge),
         work,
-        claude: machineClaude({ team, claudeBin: config.claude ?? "claude", token, home, clone: work.clone, platform }),
-        canRun: (role) => roleRunsHere(team, role, { sandbox: platform !== "windows" }),
+        claude: machineClaude({ team, claudeBin: config.claude ?? "claude", token, home, clone: work.clone, platform, unsandboxed, gitBash: config.gitBash ?? null }),
+        canRun: (role) => roleRunsHere(team, role, { sandbox: platform !== "windows" || unsandboxed }),
+        unsandboxed,
         mode: config.mode === "full" && !args["dry-run"] ? "full" : "comment",
         run,
         secrets: [ghToken, token],

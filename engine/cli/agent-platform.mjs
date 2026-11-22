@@ -61,13 +61,15 @@ export function readToken(platform, run, opts) {
  * The Claude child's environment: what the CLI needs on that OS, the agent's own config dir and the OAuth token —
  * and nothing else (no GH_TOKEN / GITHUB_TOKEN, no ANTHROPIC_API_KEY, which would win over the token).
  */
-export function childEnv(platform, { base = process.env, configDir, token }) {
+export function childEnv(platform, { base = process.env, configDir, token, gitBash = null }) {
   const pick = (keys) => Object.fromEntries(keys.filter((k) => base[k] !== undefined).map((k) => [k, base[k]]));
   const common = { CLAUDE_CONFIG_DIR: configDir, CLAUDE_CODE_OAUTH_TOKEN: token };
   if (platform === "windows") {
     // No PowerShell tool either (it runs unsandboxed on Windows; --restricted leaves it out unless --tools names it,
     // and this makes sure even then).
-    return { CLAUDE_CODE_USE_POWERSHELL_TOOL: "0", ...pick(["USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "PATH", "Path", "PATHEXT", "ComSpec", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS"]), ...common };
+    // With Git Bash: the Bash tool uses it, and so do npm scripts (npm would run them with cmd.exe, where POSIX-style
+    // scripts such as `NAME=1 electron …` fail).
+    return { CLAUDE_CODE_USE_POWERSHELL_TOOL: "0", ...(gitBash ? { CLAUDE_CODE_GIT_BASH_PATH: gitBash, npm_config_script_shell: gitBash } : {}), ...pick(["USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "PATH", "Path", "PATHEXT", "ComSpec", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS"]), ...common };
   }
   return { HOME: base.HOME ?? "", USER: base.USER ?? "", PATH: base.PATH ?? "/usr/bin:/bin", LANG: "en_US.UTF-8", ...common };
 }

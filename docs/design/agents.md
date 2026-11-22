@@ -111,6 +111,13 @@ for a macOS machine (`check` says so; the runner logs and skips its issues). The
 - Scheduler: a Task Scheduler task from an XML definition (every N minutes while logged on, one instance at a time, a
   3-hour limit), started through `conhost.exe --headless` when that works on the machine (tried at install), otherwise a
   hidden PowerShell window. The runner writes its own log (`--log`).
+- Unsandboxed opt-in (per machine, off by default): `agent-install install --unsandboxed` on native Windows lets
+  roles with Bash run without the sandbox, after the person accepted the risk (the agent skill asks; it is never the
+  default). The model's environment still holds no token and the allowlist / deny rules still apply, but commands and
+  test scripts the agent edits run unconfined as that person (credentials, network). The runner logs a warning each
+  run and every PR it opens carries a notice for reviewers. Hardening: a separate Windows account just for the agent.
+  With Git for Windows, the child gets `CLAUDE_CODE_GIT_BASH_PATH` and `npm_config_script_shell` (POSIX-style npm
+  scripts fail under cmd.exe).
 - Claude executable: `claude.exe` on PATH, the one beside the npm shim (a `.cmd` cannot be spawned without a shell), or
   `%USERPROFILE%\.local\bin\claude.exe` (the native installer does not add it to PATH).
 - Verified on a GitHub-hosted Windows runner by the plugin's CI: the unit tests; the DPAPI round trip; the task registers,

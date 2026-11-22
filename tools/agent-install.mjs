@@ -5,7 +5,8 @@
  *
  *   node agent-install.mjs check   --repo owner/name [--repo …]
  *   node agent-install.mjs store-token      (the token copied from `claude setup-token`, read from the clipboard)
- *   node agent-install.mjs install --repo owner/name [--repo …] [--mode comment|full] [--interval 10]
+ *   node agent-install.mjs install --repo owner/name [--repo …] [--mode comment|full] [--interval 10] [--unsandboxed]
+ *     (--unsandboxed, native Windows only: Bash roles run without the sandbox; the person must accept that risk first)
  *   node agent-install.mjs status | run-now | pause | resume | uninstall | forget-token
  *
  * install: copies this plugin's engine to ~/.dev-process/agent/engine-<version>/ (the job never runs code from a
@@ -17,7 +18,7 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { platformOf, readToken, roleRunsHere, TOKEN_SHAPE, tokenCommand } from "../engine/cli/agent-platform.mjs";
@@ -39,11 +40,22 @@ export function plistFor({ node, script, config, path, intervalMin = 10, out, er
 }
 
 /** The machine config (pure): checked repos, a mode, the keychain service, the tools' paths. */
-export function machineConfig({ login, repos, mode = "comment", claude }) {
+export function machineConfig({ login, repos, mode = "comment", claude, unsandboxed = false, gitBash = null }) {
   if (!login) throw new Error("login: gh must be logged in");
   if (!Array.isArray(repos) || !repos.length || repos.some((r) => !REPO.test(r))) throw new Error("repos: owner/name, at least one");
   if (!["comment", "full"].includes(mode)) throw new Error('mode: "comment" or "full"');
-  return { login, repos: [...new Set(repos)], mode, keychainService: "dev-process-agent-claude", claude };
+  return { login, repos: [...new Set(repos)], mode, keychainService: "dev-process-agent-claude", claude, ...(unsandboxed ? { unsandboxed: true } : {}), ...(gitBash ? { gitBash } : {}) };
+}
+
+/** Git for Windows' bash.exe (the Bash tool needs it on Windows), from `git` on PATH, or null (pure). */
+export function gitBashFrom(gitPaths, exists = existsSync) {
+  for (const g of gitPaths) {
+    for (const rel of [["..", "bin", "bash.exe"], ["..", "..", "bin", "bash.exe"]]) {
+      const b = win32.join(win32.dirname(g), ...rel);
+      if (exists(b)) return b;
+    }
+  }
+  return null;
 }
 
 const PLATFORM = platformOf();
@@ -65,11 +77,11 @@ export function resolveClaude(platform, candidates, exists = existsSync, profile
   const exe = candidates.find((c) => /\.exe$/i.test(c));
   if (exe) return exe;
   for (const c of candidates) {
-    const shipped = join(dirname(c), "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
+    const shipped = win32.join(win32.dirname(c), "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
     if (exists(shipped)) return shipped;
   }
   // The native installer puts it here and does not add it to PATH.
-  const native = profile ? join(profile, ".local", "bin", "claude.exe") : null;
+  const native = profile ? win32.join(profile, ".local", "bin", "claude.exe") : null;
   return native && exists(native) ? native : null;
 }
 
@@ -151,7 +163,7 @@ const pluginVersion = () => JSON.parse(readFileSync(join(PLUGIN_ROOT, ".claude-p
 const userName = () => process.env.USER ?? process.env.USERNAME ?? "";
 
 /** What the machine has; each finding `{ ok, what, detail }`. Never prints a token. */
-export function check(repos, { home = join(homedir(), ".dev-process", "agent") } = {}) {
+export function check(repos, { home = join(homedir(), ".dev-process", "agent"), unsandboxed = false } = {}) {
   const out = [];
   const add = (ok, what, detail = "") => out.push({ ok, what, detail });
   add(PLATFORM === "mac" || PLATFORM === "windows", "macOS or Windows", process.platform);
@@ -180,9 +192,11 @@ export function check(repos, { home = join(homedir(), ".dev-process", "agent") }
       }
       add(roles.length > 0, `${repo}: roles for ${login}`, detail);
       if (team && roles.length) {
-        const here = roles.filter((r) => roleRunsHere(team, r, { sandbox: PLATFORM !== "windows" }));
+        const here = roles.filter((r) => roleRunsHere(team, r, { sandbox: PLATFORM !== "windows" || unsandboxed }));
         const not = roles.filter((r) => !here.includes(r));
-        if (not.length) add(here.length > 0, `${repo}: roles this machine can run`, `${here.join(", ") || "none"}; not here (they use Bash, which needs the sandbox: macOS or Linux): ${not.join(", ")}`);
+        if (not.length) add(here.length > 0, `${repo}: roles this machine can run`, `${here.join(", ") || "none"}; not here (they use Bash, which needs the sandbox: macOS or Linux, or install with --unsandboxed after accepting the risk): ${not.join(", ")}`);
+        const bashHere = PLATFORM === "windows" && unsandboxed && here.some((r) => team.roles[r].tools.includes("Bash"));
+        if (bashHere) add(Boolean(gitBashFrom(whichAll("git"))), "Git Bash (the Bash tool needs it on Windows)", gitBashFrom(whichAll("git")) ?? "install Git for Windows");
       }
       const perm = run(gh, ["api", `repos/${repo}`, "--jq", ".permissions.push"]).stdout.trim();
       add(perm === "true", `${repo}: ${login} can push branches`, perm === "true" ? "ok" : "needs Write access");
@@ -216,8 +230,10 @@ function storeToken(home) {
   console.log(`token stored (${token.length} characters). Copy something else now to clear the clipboard.`);
 }
 
-function install(repos, { mode, intervalMin, home }) {
-  const c = check(repos, { home });
+function install(repos, { mode, intervalMin, home, unsandboxed = false }) {
+  if (unsandboxed && PLATFORM !== "windows") throw new Error("--unsandboxed is only for native Windows (macOS has the sandbox)");
+  if (unsandboxed) console.log("WARNING: Bash roles will run WITHOUT the sandbox on this machine: commands and test scripts the agent edits run as you, can read your credentials and reach the network. Every PR the agent opens says so.");
+  const c = check(repos, { home, unsandboxed });
   const bad = c.findings.filter((f) => !f.ok);
   if (bad.length) {
     for (const f of bad) console.log(`✗ ${f.what}: ${f.detail}`);
@@ -229,7 +245,8 @@ function install(repos, { mode, intervalMin, home }) {
   mkdirSync(home, { recursive: true });
   cpSync(join(PLUGIN_ROOT, "engine"), engine, { recursive: true });
   mkdirSync(P.logs, { recursive: true });
-  writeFileSync(P.config, `${JSON.stringify(machineConfig({ login: c.login, repos, mode, claude: c.claude }), null, 2)}\n`, { mode: 0o600 });
+  const gitBash = PLATFORM === "windows" ? gitBashFrom(whichAll("git")) : null;
+  writeFileSync(P.config, `${JSON.stringify(machineConfig({ login: c.login, repos, mode, claude: c.claude, unsandboxed, gitBash }), null, 2)}\n`, { mode: 0o600 });
   const S = schedulerCommands(PLATFORM, P);
   const script = join(engine, "cli", "agent-run.mjs");
   if (PLATFORM === "mac") {
@@ -262,12 +279,13 @@ function status(home) {
 async function main(argv = process.argv.slice(2)) {
   const [cmd, ...rest] = argv;
   const repos = [];
-  const opts = { mode: "comment", intervalMin: 10, home: join(homedir(), ".dev-process", "agent") };
+  const opts = { mode: "comment", intervalMin: 10, home: join(homedir(), ".dev-process", "agent"), unsandboxed: false };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--repo") repos.push(rest[++i]);
     else if (rest[i] === "--mode") opts.mode = rest[++i];
     else if (rest[i] === "--interval") opts.intervalMin = Number(rest[++i]);
     else if (rest[i] === "--home") opts.home = rest[++i];
+    else if (rest[i] === "--unsandboxed") opts.unsandboxed = true;
     else throw new Error(`unknown argument ${rest[i]}`);
   }
   const P = paths(opts.home);

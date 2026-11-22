@@ -16,7 +16,7 @@ argument-hint: "[setup | status | pause | resume | run-now | remove] [owner/name
 - Set up only this machine, for the person logged in to `gh` here. Never install on anyone else's behalf.
 - Never edit `.dev-process/team.json` on the default branch or push it: joining the team is a pull request the team reviews (it is a high-risk path).
 - Never post `/signoff` or the waiver command, never approve, never add the merge-queue label by hand for the agent.
-- macOS or Windows (on Linux, say it is not supported yet and stop). On Windows only roles without Bash run (product, UI, marketing as usually set up): Claude Code has no sandbox on native Windows, so a role that runs commands (engineering) stays on a Mac — check says so.
+- macOS or Windows (on Linux, say it is not supported yet and stop). On Windows, by default only roles without Bash run (product, UI, marketing as usually set up): Claude Code has no sandbox on native Windows. A role that runs commands (engineering) runs there only if the person explicitly accepts running it unsandboxed (setup step 2); never turn that on for them.
 
 ## setup
 
@@ -27,12 +27,13 @@ argument-hint: "[setup | status | pause | resume | run-now | remove] [owner/name
    - **roles this machine can run** (Windows): roles with Bash are left for a Mac; if none of the person's roles can run here, stop and say so.
    - **roles for <login>**: the person is not in `.dev-process/team.json` on the default branch (or the file is missing). The team lead adds them (login and roles) in a pull request; the agent starts working once it is merged. Do not change the file yourself.
    - **can push branches**: a repository admin gives them Write access (pushing to the default branch stays blocked by the branch protection).
-2. Ask, with AskUserQuestion:
+2. On Windows, when check says a role of theirs needs Bash: explain plainly, then ask with AskUserQuestion whether to run it **without the sandbox** on this machine (default and recommended: no — that role stays on a Mac). Say what it means: the commands and test scripts the agent edits run as them, can read their credentials (GitHub login, files) and reach the network; the allowlist only limits what the model runs directly; every PR the agent opens says it ran unsandboxed. Mention the hardening option: a separate Windows user account just for the agent, so a bad script cannot reach their own credentials. Only on an explicit yes, add `--unsandboxed` to the install command. Git for Windows must be installed (the Bash tool and the npm scripts use its bash).
+3. Ask, with AskUserQuestion:
    - **Mode**: `comment` (recommended at first: the agent works and posts what it would do as a comment, and nothing is committed) or `full` (it pushes branches, opens pull requests and hands issues on).
    - **How often**: every 10 minutes (default), 15 or 30.
-3. Install: `node <plugin>/tools/agent-install.mjs install --repo <repo> --mode <mode> --interval <minutes>`. It copies the engine to the agent folder (`.dev-process/agent` in the home folder), writes the config and the scheduled job — macOS: a LaunchAgent; Windows: a Task Scheduler task "dev-process-agent" (it tries a windowless start first and falls back to a hidden PowerShell window, saying which) — and loads it. It runs only while the user is logged in and the machine is awake.
-4. Prove it: `node <plugin>/tools/agent-install.mjs run-now`, wait about a minute, then `node <plugin>/tools/agent-install.mjs status` and show the last log lines. With no issue assigned to them and marked `agent:ready`, "noTask" is the expected result.
-5. Tell the user how work reaches their agent: an issue assigned to them with their role label (`role:<role>`) and the `agent:ready` label added by a team member. Issues without a role go to the triage role's person. When the agent needs them, it adds `agent:blocked` and assigns the issue to them; adding `agent:ready` again continues.
+4. Install: `node <plugin>/tools/agent-install.mjs install --repo <repo> --mode <mode> --interval <minutes>` (plus `--unsandboxed` only after the explicit yes in step 2). It copies the engine to the agent folder (`.dev-process/agent` in the home folder), writes the config and the scheduled job — macOS: a LaunchAgent; Windows: a Task Scheduler task "dev-process-agent" (it tries a windowless start first and falls back to a hidden PowerShell window, saying which) — and loads it. It runs only while the user is logged in and the machine is awake.
+5. Prove it: `node <plugin>/tools/agent-install.mjs run-now`, wait about a minute, then `node <plugin>/tools/agent-install.mjs status` and show the last log lines. With no issue assigned to them and marked `agent:ready`, "noTask" is the expected result.
+6. Tell the user how work reaches their agent: an issue assigned to them with their role label (`role:<role>`) and the `agent:ready` label added by a team member. Issues without a role go to the triage role's person. When the agent needs them, it adds `agent:blocked` and assigns the issue to them; adding `agent:ready` again continues.
 
 ## status, pause, resume, run-now, remove
 
