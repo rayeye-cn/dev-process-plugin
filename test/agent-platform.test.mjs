@@ -92,7 +92,7 @@ test("runRepo leaves a Bash role's issue alone on a machine that cannot run it",
   const r = await runRepo({ team, login: "dev-b", base: "main", ops, work: {}, claude: async () => "", run: "R", log: (s) => logs.push(s), canRun: (role) => roleRunsHere(team, role, { sandbox: false }) });
   assert.equal(r.idle, "noTask");
   assert.deepEqual(writes, []);
-  assert.match(logs.join("\n"), /role dev needs the sandbox/);
+  assert.match(logs.join("\n"), /role dev does not run on this machine/);
 });
 
 test("resolveClaude on Windows: claude.exe first, else the exe the npm package ships beside the shim", () => {
@@ -161,4 +161,40 @@ test("machineConfig keeps the unsandboxed opt-in and Git Bash; gitBashFrom finds
   const env = childEnv("windows", { base: { PATH: "p" }, configDir: "c", token: "t", gitBash: "C:\\Git\\bin\\bash.exe" });
   assert.equal(env.CLAUDE_CODE_GIT_BASH_PATH, "C:\\Git\\bin\\bash.exe");
   assert.equal(env.npm_config_script_shell, "C:\\Git\\bin\\bash.exe");
+});
+
+test("the owner's choices: roles for this machine (role-less issues follow the triage role) and a model", async () => {
+  const t = validateTeam({
+    version: 1,
+    people: [{ login: "lead-a", roles: ["product", "marketing"] }],
+    roles: {
+      product: { instructions: "p.md", next: ["marketing"], paths: [".prd/**"], triage: true },
+      marketing: { instructions: "m.md", paths: ["docs/marketing/**"] },
+    },
+  });
+  const issues = [
+    { number: 1, title: "t", body: "", state: "open", isPull: false, labels: ["agent:ready"], assignees: ["lead-a"] },
+    { number: 2, title: "t", body: "", state: "open", isPull: false, labels: ["role:marketing", "agent:ready"], assignees: ["lead-a"] },
+  ];
+  const writes = [];
+  const ops = new Proxy(
+    { issuesWithLabel: async (l) => issues.filter((i) => i.labels.includes(l)), labeledBy: async () => "lead-a", agentPulls: async () => [], issueComments: async () => [] },
+    { get: (o, k) => o[k] ?? (async (...a) => writes.push([k, ...a])) },
+  );
+  const work = { readDefault: async () => "", prepare: async (i, role) => ({ dir: "/w", branch: `agent/${role}/${i.number}-R`, base: null }), setup: async () => ({ ok: true }), changedFiles: async () => [], commitAndPush: async () => {}, cleanup: async () => {} };
+  // this machine runs marketing only: the role-less issue (#1, triage → product) is left alone, #2 is taken
+  const r = await runRepo({ team: t, login: "lead-a", base: "main", mode: "comment", run: "R", ops, work, claude: async () => JSON.stringify({ structured_output: { status: "done", summary: "s", next: "done" } }), canRun: (role) => ["marketing"].includes(role) });
+  assert.equal(r.task.number, 2);
+  assert.equal(r.task.role, "marketing");
+  const a = claudeArgs(t, "marketing", { model: "sonnet" });
+  assert.equal(a[a.indexOf("--model") + 1], "sonnet");
+  assert.ok(!claudeArgs(t, "marketing").includes("--model"));
+});
+
+test("machineConfig keeps the owner's roles and model, refuses bad ones", () => {
+  const c = machineConfig({ login: "a", repos: ["o/r"], claude: "c", roles: ["product", "product"], model: "opus" });
+  assert.deepEqual(c.roles, ["product"]);
+  assert.equal(c.model, "opus");
+  assert.throws(() => machineConfig({ login: "a", repos: ["o/r"], roles: [] }), /roles/);
+  assert.throws(() => machineConfig({ login: "a", repos: ["o/r"], model: "opus; rm -rf" }), /model/);
 });

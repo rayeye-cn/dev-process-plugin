@@ -5,7 +5,9 @@
  *
  *   node agent-install.mjs check   --repo owner/name [--repo …]
  *   node agent-install.mjs store-token      (the token copied from `claude setup-token`, read from the clipboard)
- *   node agent-install.mjs install --repo owner/name [--repo …] [--mode comment|full] [--interval 10] [--unsandboxed]
+ *   node agent-install.mjs install --repo owner/name [--repo …] [--mode comment|full] [--interval 10]
+ *                                  [--roles a,b] [--model sonnet|opus|…] [--unsandboxed]
+ *     (--roles: which of your roles this machine runs, default all; --model: the model your own plan pays for)
  *     (--unsandboxed, native Windows only: Bash roles run without the sandbox; the person must accept that risk first)
  *   node agent-install.mjs status | run-now | pause | resume | uninstall | forget-token
  *
@@ -40,11 +42,28 @@ export function plistFor({ node, script, config, path, intervalMin = 10, out, er
 }
 
 /** The machine config (pure): checked repos, a mode, the keychain service, the tools' paths. */
-export function machineConfig({ login, repos, mode = "comment", claude, unsandboxed = false, gitBash = null }) {
+/**
+ * The machine config (pure): what the owner chose for this machine — repositories, which of their roles to run here
+ * (`roles`, all when not given), mode, a model for their own plan (`model`, the role's / account default when not
+ * given), the unsandboxed opt-in (Windows) — plus the tools' paths.
+ */
+export function machineConfig({ login, repos, mode = "comment", claude, unsandboxed = false, gitBash = null, roles = null, model = null }) {
   if (!login) throw new Error("login: gh must be logged in");
   if (!Array.isArray(repos) || !repos.length || repos.some((r) => !REPO.test(r))) throw new Error("repos: owner/name, at least one");
   if (!["comment", "full"].includes(mode)) throw new Error('mode: "comment" or "full"');
-  return { login, repos: [...new Set(repos)], mode, keychainService: "dev-process-agent-claude", claude, ...(unsandboxed ? { unsandboxed: true } : {}), ...(gitBash ? { gitBash } : {}) };
+  if (roles !== null && (!Array.isArray(roles) || !roles.length || roles.some((r) => !/^[a-z][a-z0-9-]{0,30}$/.test(r)))) throw new Error("roles: role names, at least one");
+  if (model !== null && !/^[A-Za-z0-9._\[\]-]{1,80}$/.test(model)) throw new Error("model: a model name or alias (e.g. sonnet, opus)");
+  return {
+    login,
+    repos: [...new Set(repos)],
+    mode,
+    keychainService: "dev-process-agent-claude",
+    claude,
+    ...(roles ? { roles: [...new Set(roles)] } : {}),
+    ...(model ? { model } : {}),
+    ...(unsandboxed ? { unsandboxed: true } : {}),
+    ...(gitBash ? { gitBash } : {}),
+  };
 }
 
 /** Git for Windows' bash.exe (the Bash tool needs it on Windows), from `git` on PATH, or null (pure). */
@@ -165,6 +184,7 @@ const userName = () => process.env.USER ?? process.env.USERNAME ?? "";
 /** What the machine has; each finding `{ ok, what, detail }`. Never prints a token. */
 export function check(repos, { home = join(homedir(), ".dev-process", "agent"), unsandboxed = false } = {}) {
   const out = [];
+  const myRoles = [];
   const add = (ok, what, detail = "") => out.push({ ok, what, detail });
   add(PLATFORM === "mac" || PLATFORM === "windows", "macOS or Windows", process.platform);
   add(Number(process.versions.node.split(".")[0]) >= 24, "Node 24+", process.versions.node);
@@ -186,6 +206,7 @@ export function check(repos, { home = join(homedir(), ".dev-process", "agent"), 
       try {
         team = validateTeam(JSON.parse(raw.stdout));
         roles = rolesOf(team, login);
+        myRoles.push(...roles);
         detail = roles.length ? roles.join(", ") : `${login} is not in ${TEAM_FILE}`;
       } catch (e) {
         detail = raw.status === 0 ? `bad ${TEAM_FILE}: ${e.message}` : `no ${TEAM_FILE} on the default branch`;
@@ -203,7 +224,7 @@ export function check(repos, { home = join(homedir(), ".dev-process", "agent"), 
     }
   }
   add(true, "agent home", home);
-  return { findings: out, login, claude };
+  return { findings: out, login, claude, roles: [...new Set(myRoles)] };
 }
 
 function paths(home) {
@@ -230,7 +251,7 @@ function storeToken(home) {
   console.log(`token stored (${token.length} characters). Copy something else now to clear the clipboard.`);
 }
 
-function install(repos, { mode, intervalMin, home, unsandboxed = false }) {
+function install(repos, { mode, intervalMin, home, unsandboxed = false, roles = null, model = null }) {
   if (unsandboxed && PLATFORM !== "windows") throw new Error("--unsandboxed is only for native Windows (macOS has the sandbox)");
   if (unsandboxed) console.log("WARNING: Bash roles will run WITHOUT the sandbox on this machine: commands and test scripts the agent edits run as you, can read your credentials and reach the network. Every PR the agent opens says so.");
   const c = check(repos, { home, unsandboxed });
@@ -246,7 +267,8 @@ function install(repos, { mode, intervalMin, home, unsandboxed = false }) {
   cpSync(join(PLUGIN_ROOT, "engine"), engine, { recursive: true });
   mkdirSync(P.logs, { recursive: true });
   const gitBash = PLATFORM === "windows" ? gitBashFrom(whichAll("git")) : null;
-  writeFileSync(P.config, `${JSON.stringify(machineConfig({ login: c.login, repos, mode, claude: c.claude, unsandboxed, gitBash }), null, 2)}\n`, { mode: 0o600 });
+  if (roles) for (const r of roles) if (!c.roles.includes(r)) throw new Error(`--roles: ${r} is not one of your roles (${c.roles.join(", ")})`);
+  writeFileSync(P.config, `${JSON.stringify(machineConfig({ login: c.login, repos, mode, claude: c.claude, unsandboxed, gitBash, roles, model }), null, 2)}\n`, { mode: 0o600 });
   const S = schedulerCommands(PLATFORM, P);
   const script = join(engine, "cli", "agent-run.mjs");
   if (PLATFORM === "mac") {
@@ -262,7 +284,7 @@ function install(repos, { mode, intervalMin, home, unsandboxed = false }) {
   run(...S.unload);
   const r = run(...S.install);
   if (r.status !== 0) throw new Error(`${S.install[0]}: ${(r.stderr || r.stdout).trim()}`);
-  console.log(`installed: ${PLATFORM === "mac" ? LABEL : TASK_NAME} every ${intervalMin} min, mode ${mode}, repos ${repos.join(", ")}`);
+  console.log(`installed: ${PLATFORM === "mac" ? LABEL : TASK_NAME} every ${intervalMin} min, mode ${mode}, repos ${repos.join(", ")}, roles ${roles ? roles.join(", ") : `all of yours (${c.roles.join(", ")})`}, model ${model ?? "the team's / account default"}${unsandboxed ? ", UNSANDBOXED" : ""}`);
   console.log(`engine ${engine}; logs ${P.logs}`);
 }
 
@@ -286,6 +308,8 @@ async function main(argv = process.argv.slice(2)) {
     else if (rest[i] === "--interval") opts.intervalMin = Number(rest[++i]);
     else if (rest[i] === "--home") opts.home = rest[++i];
     else if (rest[i] === "--unsandboxed") opts.unsandboxed = true;
+    else if (rest[i] === "--roles") opts.roles = rest[++i].split(",").map((x) => x.trim()).filter(Boolean);
+    else if (rest[i] === "--model") opts.model = rest[++i];
     else throw new Error(`unknown argument ${rest[i]}`);
   }
   const P = paths(opts.home);

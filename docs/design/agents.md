@@ -126,6 +126,15 @@ for a macOS machine (`check` says so; the runner logs and skips its issues). The
   authentication. Not verified: a real Claude run with a token on a colleague's Windows machine; `conhost --headless` on
   an interactive desktop (the runner had none and fell back to PowerShell).
 
+## The machine owner's choices
+
+`/dev-process:agent` asks the person installing, for their own machine: repositories, which of their roles run here
+(`--roles`, default all — the triage role's role-less issues follow that choice), mode (comment / full), interval,
+model (`--model`, their own plan pays; default the role's model, else the account default), and on Windows whether
+Bash roles may run without the sandbox (`--unsandboxed`, default no). The team file still decides who has which role
+and what each role may do; the machine config can only narrow it (a subset of roles, a model), never widen it —
+except the explicit unsandboxed opt-in, which is the owner's own risk and is visible on every PR.
+
 ## Human gates
 
 - Low-tier pull requests (docs-only by the repository's policy): the runner adds the queue label itself once the gate

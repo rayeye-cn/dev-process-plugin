@@ -38,7 +38,7 @@ export const CREDENTIAL_PATHS = Object.freeze(["~/.config/gh", "~/.ssh", "~/Libr
  * The Claude command for a role (pure): restricted mode (no settings files, file tools confined to the worktree, Bash
  * only when the role names it), dontAsk with the role's rules, a sandbox that cannot be left, structured output.
  */
-export function claudeArgs(team, role, { allowRead = [], schema = AGENT_RESULT_SCHEMA, sandbox = true, unsandboxed = false } = {}) {
+export function claudeArgs(team, role, { allowRead = [], schema = AGENT_RESULT_SCHEMA, sandbox = true, unsandboxed = false, model = null } = {}) {
   const r = team.roles[role];
   const fileTools = r.tools.filter((x) => x !== "Bash");
   // A role with Bash on a machine without the sandbox runs only when the person turned that on for this machine
@@ -76,7 +76,8 @@ export function claudeArgs(team, role, { allowRead = [], schema = AGENT_RESULT_S
     JSON.stringify(settings),
     "--max-turns",
     String(r.maxTurns),
-    ...(r.model ? ["--model", r.model] : []),
+    // The machine owner may pick a model (their own plan pays); otherwise the role's, otherwise the account default.
+    ...(model || r.model ? ["--model", model || r.model] : []),
     "--output-format",
     "json",
     "--json-schema",
@@ -104,7 +105,7 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
   // 1. Assignment (only the triage role's people do it, so one machine owns it).
   const ready = await ops.issuesWithLabel(L.ready);
   for (const i of ready) i.readyBy = await ops.labeledBy(i.number, L.ready);
-  if (mine.includes(triageRole(team))) {
+  if (mine.includes(triageRole(team)) && canRun(triageRole(team))) {
     for (const a of assignmentsFor(team, ready)) {
       if (!assignable(team, a.login)) continue;
       await ops.setAssignees(a.number, [], [a.login]);
@@ -156,11 +157,12 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
   }
 
   // 4. At most one task.
-  // Roles this machine cannot run (Bash without a sandbox) are left for a machine that can.
+  // Roles this machine does not run — Bash without a sandbox, or roles its owner chose to run elsewhere — are left for
+  // another machine. An issue without a role label is the triage role's.
   const runnable = ready.filter((i) => {
-    const r = Object.keys(team.roles).find((x) => i.labels.includes(`${L.rolePrefix}${x}`));
+    const r = Object.keys(team.roles).find((x) => i.labels.includes(`${L.rolePrefix}${x}`)) ?? triageRole(team);
     if (r && !canRun(r)) {
-      log(`skip #${i.number}: role ${r} needs the sandbox, not available here`);
+      log(`skip #${i.number}: role ${r} does not run on this machine`);
       return false;
     }
     return true;
@@ -501,11 +503,11 @@ function machineWork({ repo, base, home, platform = platformOf() }) {
   };
 }
 
-function machineClaude({ team, claudeBin, token, home, clone, platform = platformOf(), unsandboxed = false, gitBash = null }) {
+function machineClaude({ team, claudeBin, token, home, clone, platform = platformOf(), unsandboxed = false, gitBash = null, model = null }) {
   const cfg = join(home, "claude-config");
   mkdirSync(cfg, { recursive: true });
   return async (dir, prompt, role) => {
-    const r = await runAsync(claudeBin, claudeArgs(team, role, { allowRead: [dir, clone], sandbox: platform !== "windows", unsandboxed }), {
+    const r = await runAsync(claudeBin, claudeArgs(team, role, { allowRead: [dir, clone], sandbox: platform !== "windows", unsandboxed, model }), {
       cwd: dir,
       input: prompt,
       timeoutMs: 90 * 60_000,
@@ -594,8 +596,9 @@ async function main(argv = process.argv.slice(2)) {
         base,
         ops: boundOps(forge),
         work,
-        claude: machineClaude({ team, claudeBin: config.claude ?? "claude", token, home, clone: work.clone, platform, unsandboxed, gitBash: config.gitBash ?? null }),
-        canRun: (role) => roleRunsHere(team, role, { sandbox: platform !== "windows" || unsandboxed }),
+        claude: machineClaude({ team, claudeBin: config.claude ?? "claude", token, home, clone: work.clone, platform, unsandboxed, gitBash: config.gitBash ?? null, model: config.model ?? null }),
+        // The owner's choice of roles for this machine (all of theirs when not set), and what the machine can run.
+        canRun: (role) => (!Array.isArray(config.roles) || config.roles.includes(role)) && roleRunsHere(team, role, { sandbox: platform !== "windows" || unsandboxed }),
         unsandboxed,
         mode: config.mode === "full" && !args["dry-run"] ? "full" : "comment",
         run,
