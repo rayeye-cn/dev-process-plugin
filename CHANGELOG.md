@@ -1,13 +1,14 @@
 # Changelog
 
-## 1.1.0 (2026-11-21)
+## 1.1.0 (2026-11-22)
 
-Role agents (pilot, GitHub, macOS). Each participant's computer runs a scheduled job that picks up the issues assigned
+Role agents (pilot, GitHub; macOS and Windows). Each participant's computer runs a scheduled job that picks up the issues assigned
 to that person for their role, works on them with Claude Code and hands them on to the next role; the review process
 stays the human gate. Design and the safety checks run on a Mac: `docs/design/agents.md`.
 
-- `/dev-process:agent`: set up, check, pause, resume or remove the job on this machine (`tools/agent-install.mjs`,
-  a LaunchAgent; the Claude token stays in the login keychain, created by the person in their own terminal).
+- `/dev-process:agent`: set up, check, pause, resume or remove the job on this machine (`tools/agent-install.mjs`:
+  a LaunchAgent on macOS, a Task Scheduler task on Windows; the Claude token, created by the person in their own
+  terminal, stays in the macOS keychain or a DPAPI-encrypted file on Windows).
 - `.dev-process/team.json` (from the answers' new `team` section, read from the default branch only): people and roles,
   allowed hand-offs, each role's writable paths, tools, allowed commands, setup commands and model, accounts never to
   notify. Each role's instructions are seeded once in `.dev-process/agents/<role>.md` (product, UI, engineering,
