@@ -97,6 +97,28 @@ Pitfall seen while setting up: a person pasted the `security` command itself at 
 `-w "$(pbpaste)"` after copying the token avoids it; the setup skill checks the stored value starts with `sk-ant-oat`
 without printing it.
 
+## Windows
+
+Native Windows has no Claude Code sandbox ("On native Windows, Claude Code runs commands unsandboxed"; with
+`failIfUnavailable` it exits at startup). So on Windows the runner only takes roles without Bash: they use file tools
+only, which `--restricted` confines to the worktree, and the settings carry no sandbox block. A role with Bash is left
+for a macOS machine (`check` says so; the runner logs and skips its issues). The child environment also sets
+`CLAUDE_CODE_USE_POWERSHELL_TOOL=0`.
+
+- Token: a file encrypted with DPAPI for the current Windows user (PowerShell's `ConvertFrom-SecureString`), read and
+  written through stdin / stdout; `PSModulePath` is dropped when calling `powershell.exe`, or Windows PowerShell 5.1
+  started from PowerShell 7 cannot load `ConvertTo-SecureString`.
+- Scheduler: a Task Scheduler task from an XML definition (every N minutes while logged on, one instance at a time, a
+  3-hour limit), started through `conhost.exe --headless` when that works on the machine (tried at install), otherwise a
+  hidden PowerShell window. The runner writes its own log (`--log`).
+- Claude executable: `claude.exe` on PATH, the one beside the npm shim (a `.cmd` cannot be spawned without a shell), or
+  `%USERPROFILE%\.local\bin\claude.exe` (the native installer does not add it to PATH).
+- Verified on a GitHub-hosted Windows runner by the plugin's CI: the unit tests; the DPAPI round trip; the task registers,
+  its action runs with paths containing spaces, Task Scheduler starts it, disable / enable / delete; `claude.exe` is found
+  and starts; the production arguments (restricted, no sandbox, settings and schema JSON) parse and the run reaches
+  authentication. Not verified: a real Claude run with a token on a colleague's Windows machine; `conhost --headless` on
+  an interactive desktop (the runner had none and fell back to PowerShell).
+
 ## Human gates
 
 - Low-tier pull requests (docs-only by the repository's policy): the runner adds the queue label itself once the gate

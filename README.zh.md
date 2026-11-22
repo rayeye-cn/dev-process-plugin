@@ -39,7 +39,7 @@ English: [README.md](README.md).
 
 ## 岗位代理（1.1，试点）
 
-可选功能：每位参与者的电脑可以跑一个**岗位代理**。它是一个定时任务，领取指派给这个人、属于其岗位（产品、UI、研发、市场……）的 GitHub issue，用 Claude Code 干活，再交给下一个岗位。模型拿不到 GitHub 写权限，并在沙箱里运行；所有写操作由固定的运行器以本人身份完成。评审流程仍是人工关口：签署、批准、合并、发版、对外发布永远由人来做。每台电脑用 `/dev-process:agent` 设置；团队、岗位和交接规则写在 `.dev-process/team.json`。设计与目前实测过的安全检查见 [docs/design/agents.md](docs/design/agents.md)。目前只支持 macOS 和 GitHub；已在一个测试仓库上完整跑通，接下来在正式仓库试点。
+可选功能：每位参与者的电脑可以跑一个**岗位代理**。它是一个定时任务，领取指派给这个人、属于其岗位（产品、UI、研发、市场……）的 GitHub issue，用 Claude Code 干活，再交给下一个岗位。模型拿不到 GitHub 写权限，并在沙箱里运行；所有写操作由固定的运行器以本人身份完成。评审流程仍是人工关口：签署、批准、合并、发版、对外发布永远由人来做。每台电脑用 `/dev-process:agent` 设置；团队、岗位和交接规则写在 `.dev-process/team.json`。设计与目前实测过的安全检查见 [docs/design/agents.md](docs/design/agents.md)。目前只支持 GitHub；电脑可以是 macOS，也可以是 Windows（Windows 上只跑不运行命令的岗位，因为原生 Windows 没有沙箱）；已在一个测试仓库上完整跑通，接下来在正式仓库试点。
 
 ## 验证情况
 

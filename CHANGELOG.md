@@ -22,10 +22,12 @@ stays the human gate. Design and the safety checks run on a Mac: `docs/design/ag
   sign off.
 - The project lead's machine posts a daily and a weekly report to a fixed issue.
 - `apply-protection` (GitHub) creates the role and status labels when the team file exists.
+- Windows: the token in a DPAPI-encrypted file, a Task Scheduler task, `claude.exe` resolution; roles without Bash only
+  (no sandbox on native Windows). `store-token` / `forget-token` on both platforms.
 
 Run end to end on a private throwaway repository (chains across all roles, stacked PRs, a stop for a person and the
 continuation, launchd); details in the design doc. Not yet: a large repository's engineering task (setup and cost),
-Windows, GitLab, the marketing role across repositories.
+GitLab, the marketing role across repositories, a real run on a colleague's Windows machine.
 
 ## 1.0.0 (2026-11-20)
 
