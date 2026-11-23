@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { claudeArgs, parsePorcelainZ, priorBranch, runRepo } from "../engine/cli/agent-run.mjs";
-import { deniedActions } from "../engine/core/agent-result.mjs";
+import { deniedActions, failureReason } from "../engine/core/agent-result.mjs";
 import { validateTeam } from "../engine/core/team.mjs";
 
 const team = validateTeam({
@@ -399,4 +399,18 @@ test("comment mode shows the verification, questions, hand-off notes and refused
   const ops2 = fakeOps({ issues: [issue({ number: 73, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
   await go({ login: "dev-b", mode: "comment", ops: ops2, work: fakeWork(), claude: answer({ status: "done", summary: "s", next: "done" }) });
   assert.match(ops2.comments[73].at(-1).body, /reported no verification commands/);
+});
+
+test("failureReason names why a run gave no answer; the failed comment carries it", async () => {
+  assert.equal(failureReason(""), "Claude printed nothing");
+  assert.equal(failureReason(JSON.stringify({ is_error: true, result: "Invalid API key · Please run /login" })), "Invalid API key · Please run /login");
+  assert.equal(failureReason(JSON.stringify({ is_error: true, result: "claude exited 1: error: unknown option '--restricted'" })), "claude exited 1: error: unknown option '--restricted'");
+  assert.match(failureReason(JSON.stringify({ type: "result", terminal_reason: "max_turns" })), /no structured answer \(max_turns\)/);
+  assert.equal(failureReason("panic: something\nat x"), "panic: something at x");
+  const ops = fakeOps({ issues: [issue({ number: 74, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
+  const logs = [];
+  await go({ login: "dev-b", ops, work: fakeWork(), log: (s) => logs.push(s), claude: async () => JSON.stringify({ is_error: true, result: "Invalid API key sk-ant-oat01-SECRETSECRETX" }), secrets: ["sk-ant-oat01-SECRETSECRETX"] });
+  const body = ops.comments[74].at(-1).body;
+  assert.match(body, /Invalid API key/);
+  assert.doesNotMatch(body + logs.join(" "), /SECRETSECRETX/);
 });

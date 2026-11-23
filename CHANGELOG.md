@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.4 (2026-11-23)
+
+- Role agents: when a Claude run gives no usable answer, the reason now reaches the log and the issue comment (the
+  CLI's own error such as a login problem, a run that ended without its answer, or the end of stderr when it died at
+  start, e.g. an unknown option from an old Claude Code), with secrets removed. Before, the comment only said "no
+  usable result".
+- Setup checks the Claude Code version (2.1.248 or newer: the agent's run uses `--restricted`).
+
 ## 1.1.3 (2026-11-23)
 
 - Role agents upgrade themselves: when Claude Code brings a newer version of this plugin (organization library or

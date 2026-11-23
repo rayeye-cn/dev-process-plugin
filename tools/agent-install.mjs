@@ -26,7 +26,7 @@ import { dirname, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { platformOf, readToken, roleRunsHere, TOKEN_SHAPE, tokenCommand } from "../engine/cli/agent-platform.mjs";
-import { clearUpgradeLock } from "../engine/cli/agent-upgrade.mjs";
+import { clearUpgradeLock, versionGreater } from "../engine/cli/agent-upgrade.mjs";
 import { TEAM_FILE, rolesOf, validateTeam } from "../engine/core/team.mjs";
 import { renderTemplate } from "./template.mjs";
 
@@ -90,6 +90,8 @@ export function gitBashFrom(gitPaths, exists = existsSync) {
 
 const PLATFORM = platformOf();
 export const TASK_NAME = "dev-process-agent";
+/** The oldest Claude Code the agent's run works with (--restricted). */
+export const MIN_CLAUDE = "2.1.248";
 
 /** All paths of a command on PATH (`which` / `where.exe`), first first. */
 function whichAll(cmd, platform = PLATFORM) {
@@ -202,6 +204,11 @@ export function check(repos, { home = join(homedir(), ".dev-process", "agent"), 
   add(Number(process.versions.node.split(".")[0]) >= 24, "Node 24+", process.versions.node);
   const claude = resolveClaude(PLATFORM, whichAll("claude"));
   add(Boolean(claude), "Claude Code installed", claude ?? (PLATFORM === "windows" ? "claude.exe not found (install Claude Code, then open a new terminal)" : "claude not on PATH"));
+  if (claude) {
+    // The agent's run needs --restricted (2.1.248+) and the sandbox's strictAllowlist (2.1.219+).
+    const v = /(\d+\.\d+\.\d+)/.exec(run(claude, ["--version"]).stdout ?? "")?.[1] ?? null;
+    add(Boolean(v) && !versionGreater(MIN_CLAUDE, v), `Claude Code ${MIN_CLAUDE} or newer`, v ? (versionGreater(MIN_CLAUDE, v) ? `${v} is too old: run claude update` : v) : "could not read its version");
+  }
   const gh = which("gh");
   const login = gh ? run(gh, ["api", "user", "--jq", ".login"]).stdout.trim() : "";
   add(Boolean(login), "gh logged in", login || "run: gh auth login, then gh auth setup-git");

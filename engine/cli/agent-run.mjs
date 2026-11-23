@@ -19,7 +19,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { parseMarker, renderReport, reportsDue, summarize } from "../core/agent-report.mjs";
-import { AGENT_RESULT_SCHEMA, buildAgentPrompt, deniedActions, parseAgentResult } from "../core/agent-result.mjs";
+import { AGENT_RESULT_SCHEMA, buildAgentPrompt, deniedActions, failureReason, parseAgentResult } from "../core/agent-result.mjs";
 import { t } from "../core/messages/index.mjs";
 import { assignable, assignmentsFor, checkPaths, checkTransition, labelsFor, ownerFor, rolesOf, safeText, selectTask, TEAM_FILE, triageRole, validateTeam } from "../core/team.mjs";
 import * as gh from "../forge/github-agent.mjs";
@@ -200,7 +200,11 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
     const result = parseAgentResult(raw);
     denied = deniedActions(raw);
     if (denied.length) log(`#${issue.number} denied: ${denied.join(" | ")}`);
-    if (!result) return await stop(out, "failed", lang === "zh" ? "没有给出可用的结果" : "no usable result");
+    if (!result) {
+      const why = failureReason(raw);
+      log(`#${issue.number} no usable result: ${safeText(why, { secrets })}`);
+      return await stop(out, "failed", `${lang === "zh" ? "没有给出可用的结果" : "no usable result"}（${why}）`);
+    }
     const clean = (s) => safeText(s, { secrets });
     const files = triage ? [] : await work.changedFiles(prepared.dir);
 
@@ -527,6 +531,12 @@ function machineClaude({ team, claudeBin, token, home, clone, platform = platfor
       // A clean environment: no GitHub token, no API key (it would win over the OAuth token), the agent's own config dir.
       env: childEnv(platform, { configDir: cfg, token, gitBash }),
     });
+    // A run that died before printing its JSON (an unknown option from an old Claude Code, an auth or start-up error):
+    // hand its exit and the end of stderr on as a CLI-style error, so the reason reaches the log and the issue.
+    if (r.status !== 0 && !String(r.stdout ?? "").trim()) {
+      const tail = String(r.stderr ?? "").trim().split("\n").slice(-3).join(" ");
+      return JSON.stringify({ is_error: true, result: `claude exited ${r.status ?? r.signal}: ${tail}`.slice(0, 400) });
+    }
     return r.stdout ?? "";
   };
 }

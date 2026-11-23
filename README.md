@@ -4,7 +4,7 @@ A Claude Code plugin that installs a **Claude-Code-team-style development and re
 
 中文说明见 [README.zh.md](README.zh.md).
 
-> **Status: 1.1.3** (role agents, a pilot). Installs on GitHub (GitHub Copilot or Claude as the reviewer) and on GitLab 17.11+ (Claude), both with the built-in merge queue. Some paths have not run end to end yet, notably a real Claude review: see [What has been validated](#what-has-been-validated).
+> **Status: 1.1.4** (role agents, a pilot). Installs on GitHub (GitHub Copilot or Claude as the reviewer) and on GitLab 17.11+ (Claude), both with the built-in merge queue. Some paths have not run end to end yet, notably a real Claude review: see [What has been validated](#what-has-been-validated).
 
 ## What it installs
 

@@ -96,6 +96,24 @@ export function deniedActions(raw) {
 }
 
 /**
+ * Why a run gave no usable answer, in one line for the log and the issue comment (the caller scrubs secrets): the
+ * CLI's own error (`is_error` + its message), a run that ended without the structured answer, or the first lines of
+ * whatever came out (an unknown option from an old Claude Code, a crash).
+ */
+export function failureReason(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "Claude printed nothing";
+  try {
+    const o = JSON.parse(s);
+    if (o.is_error || String(o.subtype ?? "").startsWith("error")) return String(o.result || o.error || o.terminal_reason || o.subtype || "error").replace(/\s+/g, " ").slice(0, 300);
+    if (!o.structured_output) return `no structured answer (${o.terminal_reason ?? o.subtype ?? "unknown"})`;
+    return "the answer did not match the expected format";
+  } catch {
+    return s.split("\n").slice(0, 3).join(" ").replace(/\s+/g, " ").slice(0, 300);
+  }
+}
+
+/**
  * The prompt: the role's instructions, the ground rules, the task context, then the issue as material in fenced blocks
  * (its text is data, never instructions).
  * @param issue    `{ number, title, body, comments: [{ login, body }] }`
