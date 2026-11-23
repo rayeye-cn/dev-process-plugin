@@ -380,3 +380,23 @@ test("a stacked PR says Refs even at the end of the chain", async () => {
   assert.equal(pr.base, "agent/product/92-R0");
   assert.match(pr.body, /^Refs #92/);
 });
+
+test("comment mode shows the verification, questions, hand-off notes and refused commands", async () => {
+  const ops = fakeOps({ issues: [issue({ number: 72, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
+  const raw = JSON.stringify({
+    structured_output: { status: "done", summary: "would fix", next: "product", handoff: "check the copy", questions: ["Rounding mode?"], pr: { title: "t", body: "b", verification: "npm test -- tests/a → 6 passed, 0 failed" } },
+    permission_denials: [{ tool_name: "Bash", tool_input: { command: "npm test | tail" } }],
+  });
+  await go({ login: "dev-b", mode: "comment", ops, work: fakeWork({ files: ["src/a.ts"] }), claude: async () => raw });
+  const body = ops.comments[72].at(-1).body;
+  assert.match(body, /comment-only/);
+  assert.match(body, /\*\*Verification\*\*/);
+  assert.match(body, /6 passed, 0 failed/);
+  assert.match(body, /Rounding mode\?/);
+  assert.match(body, /check the copy/);
+  assert.match(body, /npm test \| tail/);
+  // nothing reported: says so
+  const ops2 = fakeOps({ issues: [issue({ number: 73, labels: ["role:dev", "agent:ready"], assignees: ["dev-b"] })] });
+  await go({ login: "dev-b", mode: "comment", ops: ops2, work: fakeWork(), claude: answer({ status: "done", summary: "s", next: "done" }) });
+  assert.match(ops2.comments[73].at(-1).body, /reported no verification commands/);
+});

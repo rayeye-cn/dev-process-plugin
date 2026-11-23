@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1 (2026-11-23)
+
+- Role agents, comment mode: the issue comment now also shows the commands the agent ran and their results (or that it
+  reported none), its questions, its hand-off notes and any refused commands, so a run can be judged without opening
+  anything.
+- After updating the plugin, run `/dev-process:agent` setup again on each machine: the scheduled job runs the engine
+  copied at install time.
+
 ## 1.1.0 (2026-11-22)
 
 Role agents (pilot, GitHub; macOS and Windows). Each participant's computer runs a scheduled job that picks up the issues assigned

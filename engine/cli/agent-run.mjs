@@ -204,7 +204,19 @@ export async function runRepo({ team, login, base, ops, work, claude, mode = "co
     const files = triage ? [] : await work.changedFiles(prepared.dir);
 
     if (mode === "comment") {
-      const lines = [clean(result.summary), "", `next: \`${clean(result.next)}\``, ...(files.length ? ["", ...files.map((f) => `- \`${f}\``)] : []), ...(result.triage ? ["", `triage: \`${clean(result.triage.role)}\``, ...result.triage.subtasks.map((s) => `- ${clean(s.title)} (\`${clean(s.role)}\`)`)] : [])];
+      // Everything a person needs to judge the run without opening anything: what it did, where it would hand on,
+      // the files, the commands it ran and their results, its questions and hand-off notes, what it was refused.
+      const lines = [
+        clean(result.summary),
+        "",
+        `next: \`${clean(result.next)}\``,
+        ...(files.length ? ["", ...files.map((f) => `- \`${f}\``)] : []),
+        ...(triage ? [] : ["", say("agent.pr.verification"), "", result.pr?.verification ? clean(result.pr.verification) : say("agent.pr.noVerification")]),
+        ...(result.questions.length ? ["", lang === "zh" ? "**要决定的事**" : "**To decide**", "", ...result.questions.map((q) => `- ${clean(q)}`)] : []),
+        ...(result.handoff ? ["", lang === "zh" ? "**交接说明**" : "**Hand-off notes**", "", clean(result.handoff)] : []),
+        ...(result.triage ? ["", `triage: \`${clean(result.triage.role)}\``, ...result.triage.subtasks.map((s) => `- ${clean(s.title)} (\`${clean(s.role)}\`)`)] : []),
+      ];
+      if (denied.length) lines.push(deniedNote(denied).trim());
       await moveTo(ops, team, issue, role, "human");
       await ops.comment(issue.number, `${lang === "zh" ? "（只评论模式，什么都没有提交）" : "(comment-only mode, nothing was committed)"}\n\n${lines.join("\n")}\n\n${marker({ run, kind: "comment-only", role })}`);
       out.task.result = "comment";
