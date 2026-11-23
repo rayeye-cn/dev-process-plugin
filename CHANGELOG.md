@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.2 (2026-11-23)
+
+- Role agents, setup on macOS: re-running setup while the watch trigger is running failed once with "Bootstrap failed:
+  5" (the kept-alive watcher had not stopped yet). Setup now waits for the old job to stop, and retries the load once.
+
 ## 1.1.1 (2026-11-23)
 
 - Role agents, comment mode: the issue comment now also shows the commands the agent ran and their results (or that it

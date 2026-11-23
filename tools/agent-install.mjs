@@ -288,8 +288,15 @@ function install(repos, { mode, intervalMin, home, unsandboxed = false, roles = 
     console.log(launcher === "conhost" ? "launcher: conhost --headless (no window)" : "launcher: hidden PowerShell (conhost --headless did not work here; a window may flash when it starts)");
     writeFileSync(P.taskFile, Buffer.from(`\ufeff${taskXmlFor({ node: process.execPath, script, config: P.config, log: join(P.logs, "agent.log"), workdir: home, intervalMin, launcher, watch, user: `${process.env.USERDOMAIN ?? ""}\\${process.env.USERNAME ?? ""}` })}`, "utf16le"));
   }
+  // Replace the running job: unload, wait until it is really gone (a kept-alive watcher takes a moment to stop;
+  // loading over it fails with "Bootstrap failed: 5"), then load, once more after a pause if the first load fails.
   run(...S.unload);
-  const r = run(...S.install);
+  for (let i = 0; i < 40 && run(...S.query).status === 0; i++) spawnSync(process.execPath, ["-e", "setTimeout(()=>{},250)"]);
+  let r = run(...S.install);
+  if (r.status !== 0) {
+    spawnSync(process.execPath, ["-e", "setTimeout(()=>{},2000)"]);
+    r = run(...S.install);
+  }
   if (r.status !== 0) throw new Error(`${S.install[0]}: ${(r.stderr || r.stdout).trim()}`);
   // A watcher starts now (macOS: RunAtLoad does it; Windows: the logon trigger would wait for the next logon).
   if (watch && PLATFORM === "windows") run(...S.runNow);
