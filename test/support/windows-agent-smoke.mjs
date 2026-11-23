@@ -78,6 +78,19 @@ ok(run(...S.pause).status === 0, "task disabled");
 ok(run(...S.resume).status === 0, "task enabled");
 ok(run(...S.remove).status === 0, `task ${TASK_NAME} deleted`);
 
+// self-upgrade hand-over: the task's process starts a DETACHED child and exits at once; the child must outlive it
+const handProbe = join(dir, "handover.mjs");
+const handMark = join(dir, "handover.txt");
+writeFileSync(join(dir, "late.mjs"), `import { writeFileSync } from "node:fs"; setTimeout(() => writeFileSync(${JSON.stringify(handMark)}, "ok"), 3000);\n`);
+writeFileSync(handProbe, `import { spawn } from "node:child_process"; spawn(process.execPath, [${JSON.stringify(join(dir, "late.mjs"))}], { detached: true, stdio: "ignore", windowsHide: true }).unref(); process.exit(0);\n`);
+writeFileSync(taskFile, Buffer.from(`\ufeff${taskXmlFor({ ...paths, script: handProbe, workdir: dir, intervalMin: 10, launcher })}`, "utf16le"));
+ok(run(...S.install).status === 0, "hand-over task registered");
+rmSync(handMark, { force: true });
+run(...S.runNow);
+for (let i = 0; i < 40 && !existsSync(handMark); i++) spawnSync(process.execPath, ["-e", "setTimeout(()=>{},500)"]);
+console.log(existsSync(handMark) ? "ok: a detached child outlives the task's process (self-upgrade hand-over)" : "note: the hand-over child did not finish here (no interactive session?)");
+run(...S.remove);
+
 // the watch trigger's task: started at logon, no time limit, restarted on failure — registers, and starts on demand
 const user = `${process.env.USERDOMAIN}\\${process.env.USERNAME}`;
 writeFileSync(taskFile, Buffer.from(`\ufeff${taskXmlFor({ ...paths, workdir: dir, intervalMin: 30, launcher, watch: true, user })}`, "utf16le"));

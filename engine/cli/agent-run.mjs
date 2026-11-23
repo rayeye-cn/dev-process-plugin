@@ -25,6 +25,7 @@ import { assignable, assignmentsFor, checkPaths, checkTransition, labelsFor, own
 import * as gh from "../forge/github-agent.mjs";
 import { createGithub } from "../forge/github.mjs";
 import { childEnv, noHooksDir, platformOf, readToken, roleRunsHere, shellFor } from "./agent-platform.mjs";
+import { findNewerPlugin, startUpgrade, upgradeLocked } from "./agent-upgrade.mjs";
 import { parseArgs, runIfMain } from "./args.mjs";
 
 export const AGENT_HOME = join(homedir(), ".dev-process", "agent");
@@ -571,6 +572,18 @@ async function main(argv = process.argv.slice(2)) {
   const home = args.home ?? AGENT_HOME;
   const config = JSON.parse(readFileSync(args.config ?? join(home, "config.json"), "utf8"));
   mkdirSync(home, { recursive: true });
+  // Schedule trigger: a newer plugin on this machine → upgrade (detached) and skip this run; the next run is the new
+  // engine. (The watch trigger checks in the watcher, between runs.)
+  if (config.trigger !== "watch" && config.autoUpgrade !== false && !upgradeLocked(home)) {
+    const newer = findNewerPlugin(config.pluginRoot, config.engineVersion);
+    if (newer) {
+      const line = `[${new Date().toISOString()}] newer plugin ${newer.version} (running ${config.engineVersion}): upgrading`;
+      console.log(line);
+      if (args.log) appendFileSync(args.log, `${line}\n`);
+      startUpgrade({ root: newer.root, home, log: (s) => console.log(s) });
+      return;
+    }
+  }
   const release = takeLock(home);
   if (!release) return console.log("another run is going");
   const run = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-");

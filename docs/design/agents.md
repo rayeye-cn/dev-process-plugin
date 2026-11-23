@@ -136,9 +136,20 @@ for a macOS machine (`check` says so; the runner logs and skips its issues). The
   every N minutes covers what the list does not show (the agent's pull requests, issues to close, missed changes).
   Verified on this Mac (the watcher stays up and runs at start); the Windows task definition is in the CI smoke test.
 
+## Upgrades
+
+The job runs the engine copied at setup. `agent-install.mjs upgrade` re-runs setup from the plugin it belongs to with
+the saved choices. With auto-upgrade on (the default, an installer choice), the agent does it itself: between runs (the
+watcher before each poll; a scheduled run at its start, then skipping that run) it looks for a newer copy of this plugin
+next to the folder setup ran from — Claude Code keeps organization-library generations (`dev-process~gN`) and
+marketplace versions side by side, a checkout changes in place — and starts that copy's `upgrade` detached (its own
+process group, so it outlives the scheduler stopping the job), behind a 10-minute lock. Verified on this Mac: a version
+bump was picked up by the watcher and installed with the same choices in 8 s; the Windows hand-over (a detached child
+outliving the task's process) is in the CI smoke test. Code only comes from the plugin the person installed.
+
 ## The machine owner's choices
 
-`/dev-process:agent` asks the person installing, for their own machine: repositories, the trigger (watch / schedule), which of their roles run here
+`/dev-process:agent` asks the person installing, for their own machine: repositories, the trigger (watch / schedule), auto-upgrade (on / off), which of their roles run here
 (`--roles`, default all — the triage role's role-less issues follow that choice), mode (comment / full), interval,
 model (`--model`, their own plan pays; default the role's model, else the account default), and on Windows whether
 Bash roles may run without the sandbox (`--unsandboxed`, default no). The team file still decides who has which role

@@ -4,7 +4,7 @@
 
 English: [README.md](README.md).
 
-> **状态：1.1.2**（岗位代理，试点中）。能装到 GitHub（评审方用 GitHub Copilot 或 Claude）和 GitLab 17.11 及以上（评审方用 Claude），合并都用自建队列。有些路径还没有端到端跑过，最主要的是真实的 Claude 评审，见[验证情况](#验证情况)。
+> **状态：1.1.3**（岗位代理，试点中）。能装到 GitHub（评审方用 GitHub Copilot 或 Claude）和 GitLab 17.11 及以上（评审方用 Claude），合并都用自建队列。有些路径还没有端到端跑过，最主要的是真实的 Claude 评审，见[验证情况](#验证情况)。
 
 ## 装上之后有什么
 

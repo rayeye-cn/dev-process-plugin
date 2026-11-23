@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { findNewerPlugin, startUpgrade, upgradeLocked } from "./agent-upgrade.mjs";
 import { parseArgs, runIfMain } from "./args.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -103,6 +104,15 @@ async function main(argv = process.argv.slice(2)) {
   let etags = {};
   let lastRunAt = 0;
   for (;;) {
+    // A newer plugin on this machine: hand over to its setup (detached) and stop; it replaces this watcher.
+    if (config.autoUpgrade !== false && !upgradeLocked(home)) {
+      const newer = findNewerPlugin(config.pluginRoot, config.engineVersion);
+      if (newer) {
+        log(`newer plugin ${newer.version} (running ${config.engineVersion}): upgrading`);
+        startUpgrade({ root: newer.root, home, log });
+        process.exit(0);
+      }
+    }
     let polled = { changed: [], etags, pollSec: MIN_POLL_SEC };
     try {
       polled = await pollRepos({ repos: config.repos, etags, request });

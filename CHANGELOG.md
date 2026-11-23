@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.3 (2026-11-23)
+
+- Role agents upgrade themselves: when Claude Code brings a newer version of this plugin (organization library or
+  marketplace), the agent re-runs its setup from it with the same choices, between runs, and logs it. An installer
+  choice (`--auto-upgrade on|off`, default on).
+- `agent-install.mjs upgrade` / `/dev-process:agent upgrade`: the same by hand, no questions.
+- This is the last time machines need to re-run setup by hand: run it once on 1.1.3, later versions arrive by
+  themselves.
+
 ## 1.1.2 (2026-11-23)
 
 - Role agents, setup on macOS: re-running setup while the watch trigger is running failed once with "Bootstrap failed:

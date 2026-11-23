@@ -10,6 +10,7 @@
  *     (--trigger watch: start a run as soon as the work list changes; --interval is then the fallback full run)
  *     (--roles: which of your roles this machine runs, default all; --model: the model your own plan pays for)
  *     (--unsandboxed, native Windows only: Bash roles run without the sandbox; the person must accept that risk first)
+ *   node agent-install.mjs upgrade          (re-run setup from this plugin with the saved choices)
  *   node agent-install.mjs status | run-now | pause | resume | uninstall | forget-token
  *
  * install: copies this plugin's engine to ~/.dev-process/agent/engine-<version>/ (the job never runs code from a
@@ -19,12 +20,13 @@
  * engine/cli/agent-platform.mjs: the macOS login keychain, or a DPAPI-encrypted file on Windows.
  */
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { platformOf, readToken, roleRunsHere, TOKEN_SHAPE, tokenCommand } from "../engine/cli/agent-platform.mjs";
+import { clearUpgradeLock } from "../engine/cli/agent-upgrade.mjs";
 import { TEAM_FILE, rolesOf, validateTeam } from "../engine/core/team.mjs";
 import { renderTemplate } from "./template.mjs";
 
@@ -48,7 +50,7 @@ export function plistFor({ node, script, config, path, intervalMin = 10, out, er
  * (`roles`, all when not given), mode, a model for their own plan (`model`, the role's / account default when not
  * given), the unsandboxed opt-in (Windows) — plus the tools' paths.
  */
-export function machineConfig({ login, repos, mode = "comment", claude, unsandboxed = false, gitBash = null, roles = null, model = null, trigger = "schedule", intervalMin = 10 }) {
+export function machineConfig({ login, repos, mode = "comment", claude, unsandboxed = false, gitBash = null, roles = null, model = null, trigger = "schedule", intervalMin = 10, autoUpgrade = true, pluginRoot = null, engineVersion = null }) {
   if (!["schedule", "watch"].includes(trigger)) throw new Error('trigger: "schedule" or "watch"');
   if (!login) throw new Error("login: gh must be logged in");
   if (!Array.isArray(repos) || !repos.length || repos.some((r) => !REPO.test(r))) throw new Error("repos: owner/name, at least one");
@@ -62,6 +64,10 @@ export function machineConfig({ login, repos, mode = "comment", claude, unsandbo
     keychainService: "dev-process-agent-claude",
     claude,
     trigger,
+    // Upgrades: re-run this setup from a newer plugin on the machine with the same choices (engine/cli/agent-upgrade.mjs).
+    autoUpgrade: autoUpgrade !== false,
+    ...(pluginRoot ? { pluginRoot } : {}),
+    ...(engineVersion ? { engineVersion } : {}),
     // schedule: a run every intervalMin; watch: a run as soon as the work list changes, and a full run every intervalMin
     ...(trigger === "watch" ? { fallbackMin: intervalMin } : { intervalMin }),
     ...(roles ? { roles: [...new Set(roles)] } : {}),
@@ -257,7 +263,7 @@ function storeToken(home) {
   console.log(`token stored (${token.length} characters). Copy something else now to clear the clipboard.`);
 }
 
-function install(repos, { mode, intervalMin, home, unsandboxed = false, roles = null, model = null, trigger = "schedule" }) {
+function install(repos, { mode, intervalMin, home, unsandboxed = false, roles = null, model = null, trigger = "schedule", autoUpgrade = true }) {
   const watch = trigger === "watch";
   if (unsandboxed && PLATFORM !== "windows") throw new Error("--unsandboxed is only for native Windows (macOS has the sandbox)");
   if (unsandboxed) console.log("WARNING: Bash roles will run WITHOUT the sandbox on this machine: commands and test scripts the agent edits run as you, can read your credentials and reach the network. Every PR the agent opens says so.");
@@ -275,7 +281,7 @@ function install(repos, { mode, intervalMin, home, unsandboxed = false, roles = 
   mkdirSync(P.logs, { recursive: true });
   const gitBash = PLATFORM === "windows" ? gitBashFrom(whichAll("git")) : null;
   if (roles) for (const r of roles) if (!c.roles.includes(r)) throw new Error(`--roles: ${r} is not one of your roles (${c.roles.join(", ")})`);
-  writeFileSync(P.config, `${JSON.stringify(machineConfig({ login: c.login, repos, mode, claude: c.claude, unsandboxed, gitBash, roles, model, trigger, intervalMin }), null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(P.config, `${JSON.stringify(machineConfig({ login: c.login, repos, mode, claude: c.claude, unsandboxed, gitBash, roles, model, trigger, intervalMin, autoUpgrade, pluginRoot: PLUGIN_ROOT, engineVersion: pluginVersion() }), null, 2)}\n`, { mode: 0o600 });
   const S = schedulerCommands(PLATFORM, P);
   const script = join(engine, "cli", watch ? "agent-watch.mjs" : "agent-run.mjs");
   if (PLATFORM === "mac") {
@@ -300,8 +306,45 @@ function install(repos, { mode, intervalMin, home, unsandboxed = false, roles = 
   if (r.status !== 0) throw new Error(`${S.install[0]}: ${(r.stderr || r.stdout).trim()}`);
   // A watcher starts now (macOS: RunAtLoad does it; Windows: the logon trigger would wait for the next logon).
   if (watch && PLATFORM === "windows") run(...S.runNow);
-  console.log(`installed: ${PLATFORM === "mac" ? LABEL : TASK_NAME} ${watch ? `watching (full run every ${intervalMin} min)` : `every ${intervalMin} min`}, mode ${mode}, repos ${repos.join(", ")}, roles ${roles ? roles.join(", ") : `all of yours (${c.roles.join(", ")})`}, model ${model ?? "the team's / account default"}${unsandboxed ? ", UNSANDBOXED" : ""}`);
+  console.log(`installed: ${PLATFORM === "mac" ? LABEL : TASK_NAME} ${watch ? `watching (full run every ${intervalMin} min)` : `every ${intervalMin} min`}, mode ${mode}, repos ${repos.join(", ")}, roles ${roles ? roles.join(", ") : `all of yours (${c.roles.join(", ")})`}, model ${model ?? "the team's / account default"}${unsandboxed ? ", UNSANDBOXED" : ""}, auto-upgrade ${autoUpgrade ? "on" : "off"}`);
   console.log(`engine ${engine}; logs ${P.logs}`);
+}
+
+/**
+ * Re-run setup from THIS plugin with the choices saved in the machine config (no questions). Started by hand
+ * (`upgrade`) or by the agent itself when a newer plugin appears (detached: output goes to the agent log).
+ */
+function upgrade(home) {
+  const P = paths(home);
+  const cfg = JSON.parse(readFileSync(P.config, "utf8"));
+  const log = (line) => {
+    console.log(line);
+    try {
+      mkdirSync(P.logs, { recursive: true });
+      appendFileSync(join(P.logs, "agent.log"), `[${new Date().toISOString()}] upgrade: ${line}\n`);
+    } catch {
+      /* logging is best effort */
+    }
+  };
+  const from = cfg.engineVersion ?? "?";
+  try {
+    install(cfg.repos, {
+      home,
+      mode: cfg.mode ?? "comment",
+      trigger: cfg.trigger ?? "schedule",
+      intervalMin: cfg.trigger === "watch" ? (cfg.fallbackMin ?? 30) : (cfg.intervalMin ?? 10),
+      roles: Array.isArray(cfg.roles) ? cfg.roles : null,
+      model: cfg.model ?? null,
+      unsandboxed: cfg.unsandboxed === true,
+      autoUpgrade: cfg.autoUpgrade !== false,
+    });
+    log(`${from} → ${pluginVersion()} done (same choices)`);
+  } catch (e) {
+    log(`${from} → ${pluginVersion()} FAILED: ${e.message}`);
+    throw e;
+  } finally {
+    clearUpgradeLock(home);
+  }
 }
 
 function status(home) {
@@ -317,7 +360,7 @@ function status(home) {
 async function main(argv = process.argv.slice(2)) {
   const [cmd, ...rest] = argv;
   const repos = [];
-  const opts = { mode: "comment", intervalMin: 10, home: join(homedir(), ".dev-process", "agent"), unsandboxed: false };
+  const opts = { mode: "comment", intervalMin: 10, home: join(homedir(), ".dev-process", "agent"), unsandboxed: false, autoUpgrade: true };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--repo") repos.push(rest[++i]);
     else if (rest[i] === "--mode") opts.mode = rest[++i];
@@ -327,6 +370,7 @@ async function main(argv = process.argv.slice(2)) {
     else if (rest[i] === "--roles") opts.roles = rest[++i].split(",").map((x) => x.trim()).filter(Boolean);
     else if (rest[i] === "--model") opts.model = rest[++i];
     else if (rest[i] === "--trigger") opts.trigger = rest[++i];
+    else if (rest[i] === "--auto-upgrade") opts.autoUpgrade = !["off", "false", "no"].includes(String(rest[++i]).toLowerCase());
     else throw new Error(`unknown argument ${rest[i]}`);
   }
   const P = paths(opts.home);
@@ -341,6 +385,7 @@ async function main(argv = process.argv.slice(2)) {
     const d = tokenCommand(PLATFORM, "delete", { home: opts.home, user: userName() });
     said(run(d.cmd, d.args, { env: d.env }), "token removed", "no token to remove");
   } else if (cmd === "install") install(repos, opts);
+  else if (cmd === "upgrade") upgrade(opts.home);
   else if (cmd === "status") status(opts.home);
   else if (cmd === "run-now") said(run(...S().runNow), "started", "not installed or paused");
   else if (cmd === "pause") said(run(...S().pause), "paused", "was not running");
@@ -350,7 +395,7 @@ async function main(argv = process.argv.slice(2)) {
     if (PLATFORM === "mac") rmSync(P.plist, { force: true });
     rmSync(P.taskFile, { force: true });
     console.log(`removed the scheduled job. Kept: ${opts.home} (logs, the agent's clones). The stored Claude token stays until you run this tool's forget-token.`);
-  } else throw new Error("usage: agent-install.mjs check|store-token|forget-token|install|status|run-now|pause|resume|uninstall [--repo owner/name …] [--mode comment|full] [--interval N]");
+  } else throw new Error("usage: agent-install.mjs check|store-token|forget-token|install|upgrade|status|run-now|pause|resume|uninstall [--repo owner/name …] [--mode comment|full] [--interval N] [--trigger schedule|watch] [--roles a,b] [--model m] [--auto-upgrade on|off] [--unsandboxed]");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

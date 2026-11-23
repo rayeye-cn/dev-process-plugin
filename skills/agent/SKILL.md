@@ -3,7 +3,7 @@ name: agent
 description: Set up, check, pause or remove this machine's role agent (macOS or Windows) — the scheduled job that picks up the GitHub issues assigned to you for your role (product, UI, engineering, marketing…), works on them with Claude Code and hands them on to the next role, with the repository's review process as the human gate. Use when the user wants their computer to take issues automatically, or asks about the agent's status, logs, pausing or removing it.
 when_to_use: The user runs /dev-process:agent, or asks to set up, check, pause, resume or remove the role agent on this machine.
 disable-model-invocation: true
-argument-hint: "[setup | status | pause | resume | run-now | remove] [owner/name …]"
+argument-hint: "[setup | upgrade | status | pause | resume | run-now | remove] [owner/name …]"
 ---
 
 # dev-process: role agent on this machine
@@ -34,11 +34,16 @@ argument-hint: "[setup | status | pause | resume | run-now | remove] [owner/name
    - **Mode**: `comment` (recommended at first: the agent works and posts what it would do as a comment; nothing is committed) or `full` (it pushes branches, opens pull requests and hands issues on).
    - **Trigger**: `watch` (recommended: a small process stays running and starts work within about a minute when an issue becomes ready for them — conditional requests, so waiting costs no rate limit and no Claude use; a full check still runs every N minutes) or `schedule` (a run every N minutes, nothing stays running). Becomes `--trigger watch|schedule`.
    - **How often** (schedule: every N minutes; watch: the full check every N minutes): 10 (schedule default), 15, 30 (watch default).
+   - **Auto-upgrade**: on (recommended: when Claude Code brings a newer version of this plugin, the agent re-runs its setup from it with the same choices, between runs, and logs it) or off (they upgrade by hand with `upgrade`). Becomes `--auto-upgrade on|off`.
    - **Model**: the team's setting (default: the role's model, else their account's default), `sonnet` (cheaper) or `opus` (stronger). Their own Claude plan pays. Becomes `--model <name>` (omit for the team's setting).
 3. Repeat the choices back in one short list and ask nothing more unless something is unclear.
-4. Install: `node <plugin>/tools/agent-install.mjs install --repo <repo> --mode <mode> --trigger <trigger> --interval <minutes>` plus `--roles …`, `--model …`, `--unsandboxed` as chosen. It copies the engine to the agent folder (`.dev-process/agent` in the home folder), writes the config and the scheduled job — macOS: a LaunchAgent; Windows: a Task Scheduler task "dev-process-agent" (it tries a windowless start first and falls back to a hidden PowerShell window, saying which) — and loads it. It runs only while the user is logged in and the machine is awake. To change a choice later, run setup again: it replaces the config and the job.
+4. Install: `node <plugin>/tools/agent-install.mjs install --repo <repo> --mode <mode> --trigger <trigger> --interval <minutes> --auto-upgrade <on|off>` plus `--roles …`, `--model …`, `--unsandboxed` as chosen. It copies the engine to the agent folder (`.dev-process/agent` in the home folder), writes the config and the scheduled job — macOS: a LaunchAgent; Windows: a Task Scheduler task "dev-process-agent" (it tries a windowless start first and falls back to a hidden PowerShell window, saying which) — and loads it. It runs only while the user is logged in and the machine is awake. To change a choice later, run setup again: it replaces the config and the job.
 5. Prove it: `node <plugin>/tools/agent-install.mjs run-now`, wait about a minute, then `node <plugin>/tools/agent-install.mjs status` and show the last log lines. With no issue assigned to them and marked `agent:ready`, "noTask" is the expected result.
 6. Tell the user how work reaches their agent: an issue assigned to them with their role label (`role:<role>`) and the `agent:ready` label added by a team member. Issues without a role go to the triage role's person. When the agent needs them, it adds `agent:blocked` and assigns the issue to them; adding `agent:ready` again continues.
+
+## upgrade
+
+`node <plugin>/tools/agent-install.mjs upgrade` re-runs setup from this plugin with the choices saved on the machine (no questions) and restarts the job. Use it after a plugin update when auto-upgrade is off, or to pick up a new version right away. To change a choice, run setup instead.
 
 ## status, pause, resume, run-now, remove
 
@@ -47,4 +52,4 @@ argument-hint: "[setup | status | pause | resume | run-now | remove] [owner/name
 - `run-now` — one run immediately.
 - `uninstall` (remove) — removes the scheduled job; the clones and logs in the agent folder stay. The stored Claude token stays until `node <plugin>/tools/agent-install.mjs forget-token`.
 
-After an update of this plugin, run setup again so the job uses the new engine.
+After an update of this plugin: with auto-upgrade on the agent upgrades itself; otherwise run `upgrade`.

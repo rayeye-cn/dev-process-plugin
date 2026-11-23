@@ -15,7 +15,11 @@ test("plistFor: a LaunchAgent that runs the copied engine every N minutes, value
 });
 
 test("machineConfig: repos as owner/name, comment mode by default, the keychain service", () => {
-  assert.deepEqual(machineConfig({ login: "dev-b", repos: ["o/r", "o/r"], claude: "/bin/claude" }), { login: "dev-b", repos: ["o/r"], mode: "comment", keychainService: "dev-process-agent-claude", claude: "/bin/claude", trigger: "schedule", intervalMin: 10 });
+  assert.deepEqual(machineConfig({ login: "dev-b", repos: ["o/r", "o/r"], claude: "/bin/claude" }), { login: "dev-b", repos: ["o/r"], mode: "comment", keychainService: "dev-process-agent-claude", claude: "/bin/claude", trigger: "schedule", intervalMin: 10, autoUpgrade: true });
+  const off = machineConfig({ login: "dev-b", repos: ["o/r"], claude: "c", autoUpgrade: false, pluginRoot: "/p/dev-process~g3", engineVersion: "1.1.2" });
+  assert.equal(off.autoUpgrade, false);
+  assert.equal(off.pluginRoot, "/p/dev-process~g3");
+  assert.equal(off.engineVersion, "1.1.2");
   const w = machineConfig({ login: "dev-b", repos: ["o/r"], claude: "c", trigger: "watch", intervalMin: 30 });
   assert.equal(w.trigger, "watch");
   assert.equal(w.fallbackMin, 30);
